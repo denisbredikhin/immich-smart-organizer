@@ -83,18 +83,25 @@ internal sealed class ImmichApiClient
         string query,
         int size,
         string? cursor = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeVideos = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ValidatePageSize(size);
 
+        Dictionary<string, object> filter = new(StringComparer.Ordinal)
+        {
+            ["ocr"] = new { matches = query }
+        };
+        if (!includeVideos)
+        {
+            filter["type"] = new { eq = "IMAGE" };
+        }
+
         Dictionary<string, object> requestBody = new(StringComparer.Ordinal)
         {
             ["size"] = size,
-            ["filter"] = new
-            {
-                ocr = new { matches = query }
-            }
+            ["filter"] = filter
         };
         if (!string.IsNullOrWhiteSpace(cursor))
         {
@@ -113,16 +120,23 @@ internal sealed class ImmichApiClient
     public async Task<ImmichSearchPage> SearchSmartAsync(
         string query,
         int size,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeVideos = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ValidatePageSize(size);
+
+        Dictionary<string, object> filter = new(StringComparer.Ordinal);
+        if (!includeVideos)
+        {
+            filter["type"] = new { eq = "IMAGE" };
+        }
 
         var requestBody = new
         {
             query,
             size,
-            filter = new { }
+            filter
         };
 
         var response = await SendAsync<SearchResponse>(
@@ -163,7 +177,7 @@ internal sealed class ImmichApiClient
             {
                 response = await _httpClient.SendAsync(
                     request,
-                    HttpCompletionOption.ResponseHeadersRead,
+                    HttpCompletionOption.ResponseContentRead,
                     cancellationToken);
             }
             catch (HttpRequestException) when (attempt < MaximumRetries)
@@ -240,7 +254,7 @@ internal sealed class ImmichApiClient
         List<string> assetIds = new(response.Assets.Items.Count);
         foreach (var item in response.Assets.Items)
         {
-            if (string.IsNullOrWhiteSpace(item.Id))
+            if (item is null || string.IsNullOrWhiteSpace(item.Id))
             {
                 throw InvalidResponse(method, endpoint);
             }

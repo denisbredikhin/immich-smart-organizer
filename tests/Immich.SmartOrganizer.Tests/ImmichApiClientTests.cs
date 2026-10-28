@@ -111,6 +111,28 @@ public sealed class ImmichApiClientTests
     }
 
     [TestMethod]
+    public async Task SearchMetadata_retries_when_response_body_read_fails()
+    {
+        var attempt = 0;
+        StubHttpMessageHandler handler = new((_, _) =>
+        {
+            attempt++;
+            HttpResponseMessage response = attempt == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new FailingHttpContent() }
+                : StubHttpMessageHandler.Json(
+                    """{"assets":{"count":0,"items":[],"nextCursor":null,"nextPage":null}}""");
+            return Task.FromResult(response);
+        });
+        using HttpClient httpClient = new(handler);
+        ImmichApiClient client = CreateClient(httpClient);
+
+        var page = await client.SearchMetadataAsync("invoice", 10);
+
+        Assert.AreEqual(0, page.AssetIds.Count);
+        Assert.AreEqual(2, handler.Requests.Count);
+    }
+
+    [TestMethod]
     public async Task SearchMetadata_does_not_retry_authentication_errors_or_expose_api_key()
     {
         StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
@@ -170,6 +192,20 @@ public sealed class ImmichApiClientTests
     }
 
     [TestMethod]
+    public async Task SearchMetadata_maps_null_search_result_items_to_incompatible_api()
+    {
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
+            StubHttpMessageHandler.Json("""{"assets":{"count":1,"items":[null]}}""")));
+        using HttpClient httpClient = new(handler);
+        ImmichApiClient client = CreateClient(httpClient);
+
+        var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
+            () => client.SearchMetadataAsync("invoice", 10));
+
+        Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
+    }
+
+    [TestMethod]
     public async Task SearchSmart_propagates_caller_cancellation()
     {
         TaskCompletionSource requestStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -204,4 +240,16 @@ public sealed class ImmichApiClientTests
 
     private static ImmichApiClient CreateClient(HttpClient httpClient) =>
         new(httpClient, "https://photos.example", ApiKey);
+
+    private sealed class FailingHttpContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) =>
+            Task.FromException(new HttpRequestException("simulated response body failure"));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
 }

@@ -294,12 +294,37 @@ public sealed class CommandLineApplicationTests
             request.Headers.TryGetValue("x-api-key", out var values)
             && values.SequenceEqual(["test-api-key"])));
         StringAssert.Contains(handler.Requests[1].Body!, "\"query\":\"receipt\"");
-        StringAssert.Contains(handler.Requests[1].Body!, "\"filter\":{}");
+        StringAssert.Contains(handler.Requests[1].Body!, "\"filter\":{\"type\":{\"eq\":\"IMAGE\"}}");
         StringAssert.Contains(handler.Requests[2].Body!, "\"matches\":\"invoice\"");
+        StringAssert.Contains(handler.Requests[2].Body!, "\"type\":{\"eq\":\"IMAGE\"}");
         Assert.IsTrue(handler.Requests.All(static request =>
             request.Method == HttpMethod.Get
             || request.Method == HttpMethod.Post
                 && request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Scan_rejects_immich_url_with_fragment_as_configuration_error()
+    {
+        using TemporaryDirectory directory = new();
+        var scanYaml = TestConfiguration.ScanYaml.Replace(
+            "http://localhost:2283",
+            "http://localhost:2283/#/photos",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), scanYaml);
+        var handler = new StubHttpMessageHandler((_, _) =>
+            throw new InvalidOperationException("Invalid configuration must not send requests."));
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
+            () => new HttpClient(handler));
+
+        Assert.AreEqual(2, result.ExitCode);
+        StringAssert.Contains(result.Error, "Configuration error:");
+        StringAssert.Contains(result.Error, "without embedded credentials, query, or fragment");
+        Assert.AreEqual(0, handler.Requests.Count);
     }
 
     [TestMethod]

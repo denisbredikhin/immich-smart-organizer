@@ -9,7 +9,8 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         IReadOnlyList<AppConfiguration.CategoryOptions> categories,
         int batchSize,
         int maxAssets,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeVideos = true)
     {
         ArgumentNullException.ThrowIfNull(categories);
         if (batchSize is < 1 or > 500)
@@ -61,7 +62,11 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
             {
                 if (plan.Kind == SearchEvidenceKind.Contextual)
                 {
-                    var page = await client.SearchSmartAsync(plan.Query, effectiveSize, cancellationToken);
+                    var page = await client.SearchSmartAsync(
+                        plan.Query,
+                        effectiveSize,
+                        cancellationToken,
+                        includeVideos);
                     var wasTruncated = candidates.AddPage(page.AssetIds, plan);
                     if (wasTruncated
                         || page.Count >= effectiveSize
@@ -81,6 +86,7 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
                     plan,
                     batchSize,
                     maxAssets,
+                    includeVideos,
                     cancellationToken);
             }
             catch (ImmichApiException exception)
@@ -103,6 +109,7 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         SearchPlan plan,
         int batchSize,
         int maxAssets,
+        bool includeVideos,
         CancellationToken cancellationToken)
     {
         string? cursor = null;
@@ -110,7 +117,12 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         while (true)
         {
             var effectiveSize = Math.Min(batchSize, maxAssets - candidates.Count);
-            var page = await client.SearchMetadataAsync(plan.Query, effectiveSize, cursor, cancellationToken);
+            var page = await client.SearchMetadataAsync(
+                plan.Query,
+                effectiveSize,
+                cursor,
+                cancellationToken,
+                includeVideos);
             var wasTruncated = candidates.AddPage(page.AssetIds, plan);
 
             if (wasTruncated || page.AssetIds.Count > effectiveSize)

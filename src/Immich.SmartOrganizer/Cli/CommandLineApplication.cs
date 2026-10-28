@@ -210,7 +210,8 @@ internal static class CommandLineApplication
             selectedCategories,
             configuration.Scanner!.BatchSize,
             maxAssets,
-            cancellationToken);
+            cancellationToken,
+            configuration.Scanner.IncludeVideos);
 
         var dryRun = options.DryRun || configuration.Processing.DryRun != false;
         output.WriteLine($"Immich version: {version}");
