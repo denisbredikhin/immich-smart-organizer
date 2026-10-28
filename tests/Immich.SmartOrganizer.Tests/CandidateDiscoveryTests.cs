@@ -1,0 +1,188 @@
+using System.Net;
+using System.Text.Json;
+using Immich.SmartOrganizer.Configuration;
+using Immich.SmartOrganizer.Immich;
+using Immich.SmartOrganizer.Search;
+
+namespace Immich.SmartOrganizer.Tests;
+
+[TestClass]
+public sealed class CandidateDiscoveryTests
+{
+    [TestMethod]
+    public async Task DiscoverAsync_aggregates_duplicates_and_preserves_search_evidence()
+    {
+        var responses = new Queue<HttpResponseMessage>(
+        [
+            Response("""{"count":1,"items":[{"id":"asset-1"}],"nextCursor":null,"nextPage":null}"""),
+            Response("""{"count":2,"items":[{"id":"asset-1"},{"id":"asset-2"}],"nextCursor":"page-2","nextPage":null}"""),
+            Response("""{"count":2,"items":[{"id":"asset-2"},{"id":"asset-3"}],"nextCursor":null,"nextPage":null}""")
+        ]);
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(responses.Dequeue()));
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "receipts",
+            Search = new AppConfiguration.SearchOptions
+            {
+                Contextual = ["receipt"],
+                Ocr = ["vat"]
+            }
+        };
+
+        var result = await discovery.DiscoverAsync([category], batchSize: 3, maxAssets: 10);
+
+        Assert.IsFalse(result.IsPartial);
+        Assert.AreEqual(3, result.Assets.Count);
+        CollectionAssert.AreEqual(
+            new[] { "asset-1", "asset-2", "asset-3" },
+            result.Assets.Select(static asset => asset.Id).ToArray());
+        var firstAssetEvidence = result.Assets[0].Evidence;
+        Assert.AreEqual(2, firstAssetEvidence.Count);
+        Assert.IsTrue(firstAssetEvidence.Contains(
+            new CandidateEvidence("receipts", SearchEvidenceKind.Contextual, "receipt")));
+        Assert.IsTrue(firstAssetEvidence.Contains(
+            new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat")));
+        Assert.IsTrue(result.Assets[1].Evidence.Contains(
+            new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat")));
+
+        using JsonDocument secondMetadataRequest = JsonDocument.Parse(handler.Requests[2].Body!);
+        Assert.AreEqual(
+            "page-2",
+            secondMetadataRequest.RootElement.GetProperty("cursor").GetString());
+    }
+
+    [TestMethod]
+    public async Task DiscoverAsync_stops_at_global_asset_limit_and_reports_partial_coverage()
+    {
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(Response(
+            """{"count":1,"items":[{"id":"asset-1"}],"nextCursor":"more","nextPage":null}""")));
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "documents",
+            Search = new AppConfiguration.SearchOptions
+            {
+                Ocr = ["invoice", "receipt"]
+            }
+        };
+
+        var result = await discovery.DiscoverAsync([category], batchSize: 10, maxAssets: 1);
+
+        Assert.IsTrue(result.IsPartial);
+        Assert.AreEqual(1, result.Assets.Count);
+        Assert.AreEqual(1, handler.Requests.Count);
+        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("asset limit", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task DiscoverAsync_marks_full_smart_search_window_as_potentially_truncated()
+    {
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(Response(
+            """{"count":2,"items":[{"id":"asset-1"},{"id":"asset-2"}],"nextCursor":null,"nextPage":null}""")));
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "tickets",
+            Search = new AppConfiguration.SearchOptions { Contextual = ["boarding pass"] }
+        };
+
+        var result = await discovery.DiscoverAsync([category], batchSize: 2, maxAssets: 20);
+
+        Assert.IsTrue(result.IsPartial);
+        Assert.AreEqual(2, result.Assets.Count);
+        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("no supported continuation", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task DiscoverAsync_stops_when_immich_repeats_a_metadata_cursor()
+    {
+        var responses = new Queue<HttpResponseMessage>(
+        [
+            Response("""{"count":1,"items":[{"id":"asset-1"}],"nextCursor":"same-cursor","nextPage":null}"""),
+            Response("""{"count":1,"items":[{"id":"asset-2"}],"nextCursor":"same-cursor","nextPage":null}""")
+        ]);
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(responses.Dequeue()));
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "documents",
+            Search = new AppConfiguration.SearchOptions { Ocr = ["invoice"] }
+        };
+
+        var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
+            () => discovery.DiscoverAsync([category], batchSize: 1, maxAssets: 20));
+
+        Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
+        Assert.AreEqual(2, handler.Requests.Count);
+    }
+
+    [TestMethod]
+    public async Task DiscoverAsync_continues_after_retryable_query_failure_and_marks_partial()
+    {
+        StubHttpMessageHandler handler = new((request, _) =>
+        {
+            using JsonDocument body = JsonDocument.Parse(request.Body!);
+            var query = body.RootElement.GetProperty("filter").GetProperty("ocr").GetProperty("matches").GetString();
+            return Task.FromResult(query == "broken"
+                ? Response("temporarily unavailable", HttpStatusCode.ServiceUnavailable)
+                : Response("""{"count":1,"items":[{"id":"asset-2"}],"nextCursor":null,"nextPage":null}"""));
+        });
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "documents",
+            Search = new AppConfiguration.SearchOptions { Ocr = ["broken", "receipt"] }
+        };
+
+        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20);
+
+        Assert.IsTrue(result.IsPartial);
+        Assert.AreEqual(1, result.Assets.Count);
+        Assert.AreEqual("asset-2", result.Assets[0].Id);
+        Assert.AreEqual(4, handler.Requests.Count);
+        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("bounded retries", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task DiscoverAsync_skips_disabled_categories_without_requests()
+    {
+        StubHttpMessageHandler handler = new((_, _) =>
+            throw new InvalidOperationException("Disabled categories must not be searched."));
+        using HttpClient httpClient = new(handler);
+        CandidateDiscovery discovery = new(CreateClient(httpClient));
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "disabled",
+            Enabled = false,
+            Search = new AppConfiguration.SearchOptions
+            {
+                Contextual = ["receipt"],
+                Ocr = ["invoice"]
+            }
+        };
+
+        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20);
+
+        Assert.IsFalse(result.IsPartial);
+        Assert.AreEqual(0, result.Assets.Count);
+        Assert.AreEqual(0, handler.Requests.Count);
+    }
+
+    private static ImmichApiClient CreateClient(HttpClient httpClient) =>
+        new(httpClient, "http://localhost:2283", "test-api-key");
+
+    private static HttpResponseMessage Response(
+        string assetsJson,
+        HttpStatusCode statusCode = HttpStatusCode.OK) =>
+        StubHttpMessageHandler.Json(
+            statusCode == HttpStatusCode.OK
+                ? $$"""{"assets":{{assetsJson}}}"""
+                : assetsJson,
+            statusCode);
+}

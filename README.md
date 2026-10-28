@@ -2,7 +2,7 @@
 
 Immich Smart Organizer is a cross-platform .NET 10 command-line tool intended to classify and organize assets in an existing Immich library using Immich's own OCR and contextual search.
 
-The project is under active development as a stack of reviewable draft pull requests. The current stage provides `init` and `config validate`; `scan` options are recognized but scanning is not implemented yet.
+The project is under active development as a stack of reviewable draft pull requests. The current stage provides `init`, `config validate`, and read-only Immich candidate discovery through `scan`. Classification and library actions are not implemented yet.
 
 ## Safety and scope
 
@@ -19,11 +19,14 @@ See [API compatibility](docs/api-compatibility.md) for the version-pinned resear
 immich-smart-organizer init
 $env:IMMICH_API_KEY = "<your Immich API key>"
 immich-smart-organizer config validate
+immich-smart-organizer scan --dry-run
 ```
 
 `init` creates `immich-smart-organizer.yaml` in the current directory and refuses to overwrite an existing file. The generated example uses `IMMICH_API_KEY` as the environment variable name; the key itself is never written to YAML. See [configuration](docs/configuration.md) for config lookup, validation, defaults, and path rules.
 
-The upcoming API and scan stages will implement `scan`. Until then, a syntactically valid `scan` command returns a non-zero status and explicitly reports that no Immich requests were sent.
+`scan` checks the Immich server version, then runs the configured OCR and contextual searches. It deduplicates results by asset ID and reports when configured limits or Immich's bounded search results make coverage partial. Search results are candidates, not a complete library inventory or final classifications. This stage never mutates the library, even when `processing.dryRun` is disabled.
+
+`--full` re-evaluates discoverable candidates; it does not guarantee that every asset in the library can be enumerated. Scan exit codes are documented in [configuration](docs/configuration.md).
 
 ## Development
 
