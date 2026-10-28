@@ -1,0 +1,417 @@
+using System.Globalization;
+
+namespace Immich.SmartOrganizer.Configuration;
+
+internal static class ConfigurationValidator
+{
+    public static ConfigurationValidationResult Validate(
+        AppConfiguration configuration,
+        string configurationPath,
+        ICommandEnvironment environment)
+    {
+        List<string> errors = [];
+        string? stateDatabasePath = null;
+
+        ValidateImmich(configuration.Immich, environment, errors);
+        ValidateScanner(configuration.Scanner, errors);
+        ValidateProcessing(configuration.Processing, errors);
+        ValidateCategories(configuration.Categories, errors);
+        ValidateLogging(configuration.Logging, errors);
+
+        if (configuration.State is null)
+        {
+            errors.Add("The 'state' section is required.");
+        }
+        else
+        {
+            stateDatabasePath = ValidateStatePath(
+                configuration.State.Path,
+                configurationPath,
+                errors);
+        }
+
+        return new ConfigurationValidationResult(errors, stateDatabasePath);
+    }
+
+    private static void ValidateImmich(
+        AppConfiguration.ImmichOptions? immich,
+        ICommandEnvironment environment,
+        List<string> errors)
+    {
+        if (immich is null)
+        {
+            errors.Add("The 'immich' section is required.");
+            return;
+        }
+
+        if (!Uri.TryCreate(immich.Url, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            errors.Add("immich.url must be an absolute HTTP or HTTPS URL without embedded credentials.");
+        }
+
+        if (string.IsNullOrWhiteSpace(immich.ApiKeyEnv)
+            || !IsEnvironmentVariableName(immich.ApiKeyEnv))
+        {
+            errors.Add("immich.apiKeyEnv must be a valid environment variable name.");
+        }
+        else if (string.IsNullOrWhiteSpace(environment.GetEnvironmentVariable(immich.ApiKeyEnv)))
+        {
+            errors.Add($"Environment variable '{immich.ApiKeyEnv}' is not set or is empty.");
+        }
+    }
+
+    private static void ValidateScanner(AppConfiguration.ScannerOptions? scanner, List<string> errors)
+    {
+        if (scanner is null)
+        {
+            errors.Add("The 'scanner' section cannot be null.");
+            return;
+        }
+
+        if (scanner.Mode is not ("incremental" or "full"))
+        {
+            errors.Add("scanner.mode must be 'incremental' or 'full'.");
+        }
+
+        ValidateRange(scanner.BatchSize, 1, 500, "scanner.batchSize", errors);
+        ValidateRange(scanner.Concurrency, 1, 8, "scanner.concurrency", errors);
+        ValidateRange(scanner.LookbackDays, 1, 3650, "scanner.lookbackDays", errors);
+    }
+
+    private static void ValidateProcessing(
+        AppConfiguration.ProcessingOptions? processing,
+        List<string> errors)
+    {
+        if (processing is null)
+        {
+            errors.Add("The 'processing' section cannot be null.");
+            return;
+        }
+
+        ValidateRange(processing.MaxAssetsPerRun, 1, 100_000, "processing.maxAssetsPerRun", errors);
+        ValidateRange(
+            processing.MaxArchiveActionsPerRun,
+            0,
+            1_000,
+            "processing.maxArchiveActionsPerRun",
+            errors);
+        ValidateRange(processing.MaxErrorsPerRun, 1, 1_000, "processing.maxErrorsPerRun", errors);
+
+        if (processing.AmbiguousAssetPolicy is not ("review" or "skip"))
+        {
+            errors.Add("processing.ambiguousAssetPolicy must be 'review' or 'skip'.");
+        }
+    }
+
+    private static void ValidateCategories(
+        List<AppConfiguration.CategoryOptions>? categories,
+        List<string> errors)
+    {
+        if (categories is null || categories.Count == 0)
+        {
+            errors.Add("At least one category is required.");
+            return;
+        }
+
+        HashSet<string> categoryNames = new(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < categories.Count; index++)
+        {
+            var category = categories[index];
+            var prefix = $"categories[{index}]";
+
+            if (category is null)
+            {
+                errors.Add($"{prefix} cannot be null.");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(category.Name))
+            {
+                errors.Add($"{prefix}.name is required.");
+            }
+            else if (category.Name != category.Name.Trim())
+            {
+                errors.Add($"{prefix}.name cannot start or end with whitespace.");
+            }
+            else if (!categoryNames.Add(category.Name))
+            {
+                errors.Add($"Category name '{category.Name}' is duplicated.");
+            }
+
+            ValidateSearch(category.Search, prefix, errors);
+            ValidateMatch(category.Match, prefix, errors);
+            ValidateActions(category.Actions, prefix, errors);
+        }
+    }
+
+    private static void ValidateSearch(
+        AppConfiguration.SearchOptions? search,
+        string prefix,
+        List<string> errors)
+    {
+        if (search is null)
+        {
+            errors.Add($"{prefix}.search is required.");
+            return;
+        }
+
+        ValidateTerms(search.Contextual, $"{prefix}.search.contextual", errors, required: false);
+        ValidateTerms(search.Ocr, $"{prefix}.search.ocr", errors, required: false);
+
+        if (search.Contextual is not { Count: > 0 } && search.Ocr is not { Count: > 0 })
+        {
+            errors.Add($"{prefix}.search must contain at least one contextual or OCR query.");
+        }
+    }
+
+    private static void ValidateMatch(
+        AppConfiguration.MatchOptions? match,
+        string prefix,
+        List<string> errors)
+    {
+        if (match is null)
+        {
+            errors.Add($"{prefix}.match is required.");
+            return;
+        }
+
+        var hasCondition = false;
+        ValidateConditionList(match.All, $"{prefix}.match.all", errors, ref hasCondition, countsAsMatch: true);
+        ValidateConditionList(match.Any, $"{prefix}.match.any", errors, ref hasCondition, countsAsMatch: true);
+        ValidateConditionList(match.Exclude, $"{prefix}.match.exclude", errors, ref hasCondition, countsAsMatch: false);
+
+        if (match.Not is not null)
+        {
+            hasCondition = true;
+            ValidateCondition(match.Not, $"{prefix}.match.not", errors);
+        }
+
+        if (!hasCondition)
+        {
+            errors.Add($"{prefix}.match must contain at least one condition.");
+        }
+    }
+
+    private static void ValidateConditionList(
+        List<AppConfiguration.MatchCondition>? conditions,
+        string path,
+        List<string> errors,
+        ref bool hasCondition,
+        bool countsAsMatch)
+    {
+        if (conditions is null)
+        {
+            errors.Add($"{path} cannot be null.");
+            return;
+        }
+
+        for (var index = 0; index < conditions.Count; index++)
+        {
+            hasCondition |= countsAsMatch;
+            var condition = conditions[index];
+            if (condition is null)
+            {
+                errors.Add($"{path}[{index}] cannot be null.");
+                continue;
+            }
+
+            ValidateCondition(condition, $"{path}[{index}]", errors);
+        }
+    }
+
+    private static void ValidateCondition(
+        AppConfiguration.MatchCondition condition,
+        string path,
+        List<string> errors)
+    {
+        var configuredOperators = 0;
+        ValidateOperator(condition.ContextualAny, $"{path}.contextualAny", errors, ref configuredOperators);
+        ValidateOperator(condition.OcrAny, $"{path}.ocrAny", errors, ref configuredOperators);
+        ValidateOperator(condition.OcrAll, $"{path}.ocrAll", errors, ref configuredOperators);
+
+        if (configuredOperators != 1)
+        {
+            errors.Add($"{path} must specify exactly one supported condition operator.");
+        }
+    }
+
+    private static void ValidateOperator(
+        List<string>? terms,
+        string path,
+        List<string> errors,
+        ref int configuredOperators)
+    {
+        if (terms is null)
+        {
+            return;
+        }
+
+        configuredOperators++;
+        ValidateTerms(terms, path, errors, required: true);
+    }
+
+    private static void ValidateActions(
+        AppConfiguration.ActionOptions? actions,
+        string prefix,
+        List<string> errors)
+    {
+        if (actions is null)
+        {
+            errors.Add($"{prefix}.actions cannot be null.");
+            return;
+        }
+
+        if (actions.Album is not null && string.IsNullOrWhiteSpace(actions.Album))
+        {
+            errors.Add($"{prefix}.actions.album cannot be empty.");
+        }
+
+        if (actions.Tag is not null && string.IsNullOrWhiteSpace(actions.Tag))
+        {
+            errors.Add($"{prefix}.actions.tag cannot be empty.");
+        }
+    }
+
+    private static void ValidateLogging(AppConfiguration.LoggingOptions? logging, List<string> errors)
+    {
+        if (logging is null)
+        {
+            errors.Add("The 'logging' section cannot be null.");
+            return;
+        }
+
+        string[] levels = ["Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"];
+        if (logging.Level is null || !levels.Contains(logging.Level, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add("logging.level must be one of Trace, Debug, Information, Warning, Error, Critical, or None.");
+        }
+
+        if (!string.Equals(logging.Format, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("logging.format must be 'text'.");
+        }
+    }
+
+    private static string? ValidateStatePath(
+        string? configuredPath,
+        string configurationPath,
+        List<string> errors)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            errors.Add("state.path is required and cannot be empty.");
+            return null;
+        }
+
+        string fullPath;
+        try
+        {
+            var configurationDirectory = Path.GetDirectoryName(configurationPath)
+                ?? Directory.GetCurrentDirectory();
+            fullPath = Path.GetFullPath(configuredPath, configurationDirectory);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            errors.Add($"state.path is invalid: {exception.Message}");
+            return null;
+        }
+
+        if (Directory.Exists(fullPath))
+        {
+            errors.Add("state.path must point to a database file, not a directory.");
+            return null;
+        }
+
+        var stateDirectory = Path.GetDirectoryName(fullPath);
+        if (stateDirectory is null || !Directory.Exists(stateDirectory))
+        {
+            errors.Add($"The directory for state.path does not exist: '{stateDirectory ?? fullPath}'.");
+            return null;
+        }
+
+        try
+        {
+            if (File.Exists(fullPath))
+            {
+                using FileStream database = new(fullPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            }
+            else
+            {
+                var probePath = Path.Combine(stateDirectory, $".immich-smart-organizer-{Guid.NewGuid():N}.tmp");
+                using FileStream probe = new(
+                    probePath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.DeleteOnClose);
+            }
+        }
+        catch (IOException)
+        {
+            errors.Add($"The directory or file for state.path is not writable: '{fullPath}'.");
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            errors.Add($"The directory or file for state.path is not writable: '{fullPath}'.");
+            return null;
+        }
+
+        return fullPath;
+    }
+
+    private static void ValidateTerms(
+        List<string>? terms,
+        string path,
+        List<string> errors,
+        bool required)
+    {
+        if (terms is null)
+        {
+            errors.Add($"{path} cannot be null.");
+            return;
+        }
+
+        if (required && terms.Count == 0)
+        {
+            errors.Add($"{path} must contain at least one term.");
+        }
+
+        for (var index = 0; index < terms.Count; index++)
+        {
+            if (string.IsNullOrWhiteSpace(terms[index]))
+            {
+                errors.Add($"{path}[{index}] cannot be empty.");
+            }
+        }
+    }
+
+    private static void ValidateRange(int value, int minimum, int maximum, string name, List<string> errors)
+    {
+        if (value < minimum || value > maximum)
+        {
+            errors.Add(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{name} must be between {minimum} and {maximum}."));
+        }
+    }
+
+    private static bool IsEnvironmentVariableName(string value)
+    {
+        if (value.Length == 0 || !(char.IsAsciiLetter(value[0]) || value[0] == '_'))
+        {
+            return false;
+        }
+
+        return value.Skip(1).All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
+    }
+}
+
+internal sealed record ConfigurationValidationResult(
+    IReadOnlyList<string> Errors,
+    string? StateDatabasePath);

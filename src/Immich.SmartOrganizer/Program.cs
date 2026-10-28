@@ -1,12 +1,33 @@
 using System.Reflection;
+using Immich.SmartOrganizer.Cli;
 
 namespace Immich.SmartOrganizer;
 
 internal static class Program
 {
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        return CommandLineApplication.Run(args, Console.Out, Console.Error);
+        using CancellationTokenSource cancellationSource = new();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellationSource.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+
+        try
+        {
+            return await CommandLineApplication.RunAsync(
+                args,
+                Console.Out,
+                Console.Error,
+                new SystemCommandEnvironment(),
+                cancellationSource.Token);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
     }
 }
 
@@ -26,28 +47,5 @@ internal static class ApplicationVersion
 
             return informationalVersion.Split('+', 2)[0];
         }
-    }
-}
-
-internal static class CommandLineApplication
-{
-    public static int Run(string[] args, TextWriter output, TextWriter error)
-    {
-        if (args is [] or ["--help"] or ["-h"])
-        {
-            output.WriteLine("Immich Smart Organizer");
-            output.WriteLine("Usage: immich-smart-organizer [--help | --version]");
-            return 0;
-        }
-
-        if (args is ["--version"] or ["-v"])
-        {
-            output.WriteLine(ApplicationVersion.Current);
-            return 0;
-        }
-
-        error.WriteLine($"Error: unsupported argument '{args[0]}'.");
-        error.WriteLine("Use --help to see available options.");
-        return 2;
     }
 }

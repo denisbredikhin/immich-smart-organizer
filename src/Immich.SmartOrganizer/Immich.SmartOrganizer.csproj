@@ -24,6 +24,12 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <EmbeddedResource Include="..\..\examples\immich-smart-organizer.yaml"
+                      LogicalName="Immich.SmartOrganizer.default-config.yaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
 </Project>
