@@ -65,6 +65,16 @@ Consequently:
 - Do not use capture time alone as an incremental cursor; a newly imported historical image may have an old capture timestamp.
 - Validate external-library behavior against an authorized test instance before documenting it as supported.
 
+## Phase 3 client behavior
+
+The CLI adds `/api` to the configured Immich server URL while preserving a reverse-proxy path (for example, `https://photos.example/immich` becomes `https://photos.example/immich/api/`). Startup calls unauthenticated `GET /server/version` before searching and accepts stable Immich 3.2.0 or later within major version 3. Search requests use the configured environment variable as `x-api-key`; the key is not printed. The default HTTP handler does not follow redirects, avoiding accidental forwarding of the key to a redirected host.
+
+The client sends each configured OCR query separately with `filter.ocr.matches` and follows metadata `nextCursor` values. It sends each contextual query separately to smart search, whose result window has no supported continuation. Candidates are deduplicated by asset ID, and each retains its category and exact matching query as OCR or contextual evidence. The implementation does not fetch OCR documents or derive classifications or confidence scores.
+
+Requests retry at most twice after the initial attempt for HTTP 408, 429, 5xx, network failures, and timeouts. `Retry-After` is respected up to a two-second delay. Authentication/permission failures and incompatible responses are not retried. Search failures after bounded retries, a full smart-search result window, deprecated-only metadata continuation, and configured candidate limits are reported as partial coverage. Cursor repetition is treated as an incompatible API response to prevent an unbounded loop.
+
+`scan` reports the server version, configured scan mode, dry-run setting, unique candidate count, and any partial-coverage reasons. Exit codes are `3` for connectivity or authentication/permission errors, `4` for an unsupported API/version/response, and `5` when discovery is partial. Phase 3 is read-only: it does not classify candidates or issue album, tag, archive, or delete requests. A successful search-window pass does not imply exhaustive library coverage.
+
 ## Albums, tags, and archive
 
 - Album display names are flat names. The API accepts an album name and returns album/user information; list and inspect existing albums before creating or mutating membership. Add assets with the album asset endpoint and reconcile state from the server response.

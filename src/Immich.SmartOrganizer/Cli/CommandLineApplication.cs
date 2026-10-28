@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using Immich.SmartOrganizer.Configuration;
+using Immich.SmartOrganizer.Immich;
+using Immich.SmartOrganizer.Search;
 
 namespace Immich.SmartOrganizer.Cli;
 
@@ -9,6 +11,9 @@ internal static class CommandLineApplication
     private const int Success = 0;
     private const int GeneralFailure = 1;
     private const int InvalidArguments = 2;
+    private const int ConnectivityFailure = 3;
+    private const int IncompatibleApi = 4;
+    private const int PartialScan = 5;
     private const int MaximumScanLimit = 100_000;
 
     public static async Task<int> RunAsync(
@@ -16,7 +21,8 @@ internal static class CommandLineApplication
         TextWriter output,
         TextWriter error,
         ICommandEnvironment environment,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<HttpClient>? httpClientFactory = null)
     {
         if (args is [] or ["--help"] or ["-h"])
         {
@@ -36,8 +42,19 @@ internal static class CommandLineApplication
             {
                 "init" => await RunInitAsync(args, output, error, environment, cancellationToken),
                 "config" => await RunConfigAsync(args, output, error, environment, cancellationToken),
-                "scan" => await RunScanAsync(args, output, error, environment, cancellationToken),
+                "scan" => await RunScanAsync(args, output, error, environment, cancellationToken, httpClientFactory),
                 _ => WriteInvalidArgument(error, args[0])
+            };
+        }
+        catch (ImmichApiException exception)
+        {
+            error.WriteLine($"Immich API error: {exception.Message}");
+            return exception.Kind switch
+            {
+                ImmichApiFailureKind.Authentication or ImmichApiFailureKind.Connectivity or ImmichApiFailureKind.Transient
+                    => ConnectivityFailure,
+                ImmichApiFailureKind.IncompatibleApi => IncompatibleApi,
+                _ => GeneralFailure
             };
         }
         catch (ConfigurationException exception)
@@ -150,7 +167,8 @@ internal static class CommandLineApplication
         TextWriter output,
         TextWriter error,
         ICommandEnvironment environment,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<HttpClient>? httpClientFactory)
     {
         if (!TryParseScanOptions(args, out var options, out var parseError))
         {
@@ -167,8 +185,49 @@ internal static class CommandLineApplication
             return InvalidArguments;
         }
 
-        error.WriteLine("Scan is not available in this stage. No Immich requests were sent.");
-        return GeneralFailure;
+        var configuration = loaded.Configuration;
+        var selectedCategories = configuration.Categories!;
+        if (options.Category is not null)
+        {
+            selectedCategories = selectedCategories
+                .Where(category => string.Equals(
+                    category.Name,
+                    options.Category,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        var apiKey = environment.GetEnvironmentVariable(configuration.Immich!.ApiKeyEnv!)!;
+        using var httpClient = httpClientFactory?.Invoke() ?? ImmichApiClient.CreateDefaultHttpClient();
+        ImmichApiClient client = new(httpClient, configuration.Immich.Url!, apiKey);
+
+        var version = await client.GetServerVersionAsync(cancellationToken);
+        var maxAssets = Math.Min(
+            configuration.Processing!.MaxAssetsPerRun,
+            options.Limit ?? int.MaxValue);
+        CandidateDiscovery discovery = new(client);
+        var result = await discovery.DiscoverAsync(
+            selectedCategories,
+            configuration.Scanner!.BatchSize,
+            maxAssets,
+            cancellationToken,
+            configuration.Scanner.IncludeVideos);
+
+        var dryRun = options.DryRun || configuration.Processing.DryRun != false;
+        output.WriteLine($"Immich version: {version}");
+        output.WriteLine(options.Full
+            ? "Scan mode: full re-evaluation of discoverable candidates"
+            : $"Scan mode: candidate discovery (configured mode: {configuration.Scanner.Mode}; incremental state is not applied in this phase)");
+        output.WriteLine($"Dry run: {dryRun.ToString().ToLowerInvariant()}");
+        output.WriteLine($"Candidates discovered: {result.Assets.Count}");
+        output.WriteLine($"Coverage: {(result.IsPartial ? "partial" : "search windows completed")}");
+        foreach (var reason in result.PartialReasons)
+        {
+            output.WriteLine($"Partial coverage: {reason}");
+        }
+
+        output.WriteLine("This phase only discovers candidates; classification and actions are not implemented. No library changes were made.");
+        return result.IsPartial ? PartialScan : Success;
     }
 
     private static bool TryParseInit(string[] args, out string? outputPath, out string? error)

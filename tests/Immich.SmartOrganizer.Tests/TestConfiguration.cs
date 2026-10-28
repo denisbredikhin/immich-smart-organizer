@@ -2,6 +2,33 @@ namespace Immich.SmartOrganizer.Tests;
 
 internal static class TestConfiguration
 {
+    public const string ScanYaml = """
+        immich:
+          url: "http://localhost:2283"
+          apiKeyEnv: IMMICH_API_KEY
+        scanner:
+          batchSize: 10
+        processing:
+          dryRun: true
+          maxAssetsPerRun: 20
+        state:
+          path: ./state.db
+        categories:
+          - name: receipts
+            enabled: true
+            search:
+              contextual:
+                - receipt
+              ocr:
+                - invoice
+            match:
+              any:
+                - ocrAny:
+                    - invoice
+            actions:
+              archive: false
+        """;
+
     public const string ValidYaml = """
         immich:
           url: "http://localhost:2283"

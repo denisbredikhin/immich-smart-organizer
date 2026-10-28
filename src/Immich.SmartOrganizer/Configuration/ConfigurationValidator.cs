@@ -46,9 +46,11 @@ internal static class ConfigurationValidator
 
         if (!Uri.TryCreate(immich.Url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-            || !string.IsNullOrEmpty(uri.UserInfo))
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
         {
-            errors.Add("immich.url must be an absolute HTTP or HTTPS URL without embedded credentials.");
+            errors.Add("immich.url must be an absolute HTTP or HTTPS URL without embedded credentials, query, or fragment.");
         }
 
         if (string.IsNullOrWhiteSpace(immich.ApiKeyEnv)

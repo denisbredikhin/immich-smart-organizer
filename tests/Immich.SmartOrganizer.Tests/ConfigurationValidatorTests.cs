@@ -226,6 +226,24 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
+    [DataRow("http://localhost:2283/?search=photos")]
+    [DataRow("http://localhost:2283/#/photos")]
+    public async Task Validate_rejects_immich_url_with_query_or_fragment(string url)
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace(
+            "http://localhost:2283",
+            url,
+            StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+
+        StringAssert.Contains(exception.Message, "without embedded credentials, query, or fragment");
+    }
+
+    [TestMethod]
     [DataRow("batchSize: 100", "batchSize: 0", "scanner.batchSize", "1 and 500")]
     [DataRow("batchSize: 100", "batchSize: 501", "scanner.batchSize", "1 and 500")]
     [DataRow("concurrency: 2", "concurrency: 0", "scanner.concurrency", "1 and 8")]

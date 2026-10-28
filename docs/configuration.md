@@ -91,13 +91,13 @@ immich-smart-organizer config validate [--config PATH]
 immich-smart-organizer scan [--config PATH] [--dry-run] [--full] [--limit N] [--category NAME] [--verbose]
 ```
 
-The `scan` options are being introduced in stages. Until the Immich API and scan implementation are available, a valid scan invocation exits with code `1` and states that no Immich requests were sent.
+The current `scan` implementation checks the server version and performs configured read-only OCR and contextual candidate searches. It reports discovered candidates and partial-coverage reasons; classification and library actions are not implemented yet, so no scan invocation changes library assets. `--full` means full re-evaluation of candidates Immich search can discover, not exhaustive library enumeration. Incremental state is not applied in this phase.
 
 | Code | Meaning |
 |---:|---|
 | `0` | Command completed successfully. |
-| `1` | General or I/O failure; scan is not yet implemented. |
+| `1` | General or I/O failure, including cancellation. |
 | `2` | Invalid arguments or configuration. |
-| `3` | Connectivity or authentication failure (reserved for the API stage). |
-| `4` | Incompatible Immich API (reserved for the API stage). |
-| `5` | Partial scan (reserved for the scan implementation). |
+| `3` | Immich connectivity or authentication/permission failure. |
+| `4` | Unsupported Immich version, endpoint, or response contract. |
+| `5` | Partial discovery; some searches or result windows were incomplete. |
