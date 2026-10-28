@@ -9,8 +9,8 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         IReadOnlyList<AppConfiguration.CategoryOptions> categories,
         int batchSize,
         int maxAssets,
-        CancellationToken cancellationToken = default,
-        bool includeVideos = true)
+        bool includeVideos = true,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(categories);
         if (batchSize is < 1 or > 500)
@@ -65,8 +65,8 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
                     var page = await client.SearchSmartAsync(
                         plan.Query,
                         effectiveSize,
-                        cancellationToken,
-                        includeVideos);
+                        includeVideos,
+                        cancellationToken);
                     var wasTruncated = candidates.AddPage(page.AssetIds, plan);
                     if (wasTruncated
                         || page.Count >= effectiveSize
@@ -121,8 +121,8 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
                 plan.Query,
                 effectiveSize,
                 cursor,
-                cancellationToken,
-                includeVideos);
+                includeVideos,
+                cancellationToken);
             var wasTruncated = candidates.AddPage(page.AssetIds, plan);
 
             if (wasTruncated || page.AssetIds.Count > effectiveSize)
@@ -205,7 +205,7 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
             return truncated;
         }
 
-        public IReadOnlyList<DiscoveredAsset> ToAssets() =>
+        public DiscoveredAsset[] ToAssets() =>
             _orderedAssets
                 .Select(static asset => new DiscoveredAsset(asset.Id, asset.Evidence))
                 .ToArray();

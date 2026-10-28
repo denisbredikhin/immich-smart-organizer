@@ -31,21 +31,17 @@ public sealed class CandidateDiscoveryTests
             }
         };
 
-        var result = await discovery.DiscoverAsync([category], batchSize: 3, maxAssets: 10);
+        var result = await discovery.DiscoverAsync([category], batchSize: 3, maxAssets: 10, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsFalse(result.IsPartial);
-        Assert.AreEqual(3, result.Assets.Count);
-        CollectionAssert.AreEqual(
-            new[] { "asset-1", "asset-2", "asset-3" },
-            result.Assets.Select(static asset => asset.Id).ToArray());
+        Assert.HasCount(3, result.Assets);
+        Assert.AreSequenceEqual(
+            expected, result.Assets.Select(static asset => asset.Id).ToArray());
         var firstAssetEvidence = result.Assets[0].Evidence;
-        Assert.AreEqual(2, firstAssetEvidence.Count);
-        Assert.IsTrue(firstAssetEvidence.Contains(
-            new CandidateEvidence("receipts", SearchEvidenceKind.Contextual, "receipt")));
-        Assert.IsTrue(firstAssetEvidence.Contains(
-            new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat")));
-        Assert.IsTrue(result.Assets[1].Evidence.Contains(
-            new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat")));
+        Assert.HasCount(2, firstAssetEvidence);
+        Assert.Contains(new CandidateEvidence("receipts", SearchEvidenceKind.Contextual, "receipt"), firstAssetEvidence);
+        Assert.Contains(new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat"), firstAssetEvidence);
+        Assert.Contains(new CandidateEvidence("receipts", SearchEvidenceKind.Ocr, "vat"), result.Assets[1].Evidence);
 
         using JsonDocument secondMetadataRequest = JsonDocument.Parse(handler.Requests[2].Body!);
         Assert.AreEqual(
@@ -69,12 +65,12 @@ public sealed class CandidateDiscoveryTests
             }
         };
 
-        var result = await discovery.DiscoverAsync([category], batchSize: 10, maxAssets: 1);
+        var result = await discovery.DiscoverAsync([category], batchSize: 10, maxAssets: 1, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsTrue(result.IsPartial);
-        Assert.AreEqual(1, result.Assets.Count);
-        Assert.AreEqual(1, handler.Requests.Count);
-        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("asset limit", StringComparison.Ordinal)));
+        Assert.HasCount(1, result.Assets);
+        Assert.HasCount(1, handler.Requests);
+        Assert.Contains(static reason => reason.Contains("asset limit", StringComparison.Ordinal), result.PartialReasons);
     }
 
     [TestMethod]
@@ -90,11 +86,11 @@ public sealed class CandidateDiscoveryTests
             Search = new AppConfiguration.SearchOptions { Contextual = ["boarding pass"] }
         };
 
-        var result = await discovery.DiscoverAsync([category], batchSize: 2, maxAssets: 20);
+        var result = await discovery.DiscoverAsync([category], batchSize: 2, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsTrue(result.IsPartial);
-        Assert.AreEqual(2, result.Assets.Count);
-        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("no supported continuation", StringComparison.Ordinal)));
+        Assert.HasCount(2, result.Assets);
+        Assert.Contains(static reason => reason.Contains("no supported continuation", StringComparison.Ordinal), result.PartialReasons);
     }
 
     [TestMethod]
@@ -115,10 +111,10 @@ public sealed class CandidateDiscoveryTests
         };
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => discovery.DiscoverAsync([category], batchSize: 1, maxAssets: 20));
+            () => discovery.DiscoverAsync([category], batchSize: 1, maxAssets: 20, cancellationToken: TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
-        Assert.AreEqual(2, handler.Requests.Count);
+        Assert.HasCount(2, handler.Requests);
     }
 
     [TestMethod]
@@ -140,13 +136,13 @@ public sealed class CandidateDiscoveryTests
             Search = new AppConfiguration.SearchOptions { Ocr = ["broken", "receipt"] }
         };
 
-        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20);
+        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsTrue(result.IsPartial);
-        Assert.AreEqual(1, result.Assets.Count);
+        Assert.HasCount(1, result.Assets);
         Assert.AreEqual("asset-2", result.Assets[0].Id);
-        Assert.AreEqual(4, handler.Requests.Count);
-        Assert.IsTrue(result.PartialReasons.Any(static reason => reason.Contains("bounded retries", StringComparison.Ordinal)));
+        Assert.HasCount(4, handler.Requests);
+        Assert.Contains(static reason => reason.Contains("bounded retries", StringComparison.Ordinal), result.PartialReasons);
     }
 
     [TestMethod]
@@ -167,11 +163,11 @@ public sealed class CandidateDiscoveryTests
             }
         };
 
-        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20);
+        var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
 
         Assert.IsFalse(result.IsPartial);
-        Assert.AreEqual(0, result.Assets.Count);
-        Assert.AreEqual(0, handler.Requests.Count);
+        Assert.IsEmpty(result.Assets);
+        Assert.IsEmpty(handler.Requests);
     }
 
     private static ImmichApiClient CreateClient(HttpClient httpClient) =>
@@ -185,4 +181,8 @@ public sealed class CandidateDiscoveryTests
                 ? $$"""{"assets":{{assetsJson}}}"""
                 : assetsJson,
             statusCode);
+
+    public TestContext TestContext { get; set; } = null!;
+
+    private static readonly string[] expected = new[] { "asset-1", "asset-2", "asset-3" };
 }
