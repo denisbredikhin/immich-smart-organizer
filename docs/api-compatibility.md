@@ -73,7 +73,7 @@ The client sends each configured OCR query separately with `filter.ocr.matches` 
 
 Requests retry at most twice after the initial attempt for HTTP 408, 429, 5xx, network failures, and timeouts. `Retry-After` is respected up to a two-second delay. Authentication/permission failures and incompatible responses are not retried. Search failures after bounded retries, a full smart-search result window, deprecated-only metadata continuation, and configured candidate limits are reported as partial coverage. Cursor repetition is treated as an incompatible API response to prevent an unbounded loop.
 
-`scan` reports the server version, configured scan mode, dry-run setting, unique candidate count, and any partial-coverage reasons. Exit codes are `3` for connectivity or authentication/permission errors, `4` for an unsupported API/version/response, and `5` when discovery is partial. Phase 3 is read-only: it does not classify candidates or issue album, tag, archive, or delete requests. A successful search-window pass does not imply exhaustive library coverage.
+`scan` reports the server version, configured scan mode, dry-run setting, unique candidate count, category classifications, planned actions, and any partial-coverage reasons. Exit codes are `3` for connectivity or authentication/permission errors, `4` for an unsupported API/version/response, and `5` when discovery is partial. Phase 4 evaluates rules against exact, case-insensitive query evidence and creates a dry-run plan; it does not issue album, tag, archive, or delete requests. A successful search-window pass does not imply exhaustive library coverage.
 
 ## Albums, tags, and archive
 

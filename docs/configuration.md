@@ -58,13 +58,13 @@ Unknown properties are errors rather than silently ignored values. The root must
 | `categories[].enabled` | boolean | `true` | Disabled categories are ignored by classification. |
 | `categories[].search.contextual` | list of strings | empty | Contextual/CLIP search queries; these are not calibrated confidence values. |
 | `categories[].search.ocr` | list of strings | empty | OCR search queries; exact matching semantics are determined by Immich. |
-| `categories[].match.all` | list of conditions | empty | All listed conditions must match. |
-| `categories[].match.any` | list of conditions | empty | At least one listed condition must match. |
+| `categories[].match.all` | list of conditions | empty | All listed conditions must match. Condition terms must also be configured in the corresponding search list. |
+| `categories[].match.any` | list of conditions | empty | At least one listed condition must match when the list is non-empty. |
 | `categories[].match.not` | condition | unset | The category condition is satisfied when this condition does not match. |
 | `categories[].match.exclude` | list of conditions | empty | Any matching exclusion blocks the category; exclusions do not qualify a category by themselves. |
 | `categories[].actions.album` | string | unset | Optional album display name. |
 | `categories[].actions.tag` | string | unset | Optional tag name. A slash is not interpreted as a filesystem path. |
-| `categories[].actions.archive` | boolean | `false` | Archiving remains opt-in and must use conservative rules and action limits. |
+| `categories[].actions.archive` | boolean | `false` | Archive action is opt-in and subject to the per-run limit; this phase plans but does not execute it. |
 | `logging.level` | `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`, or `None` | `Information` | Reserved for CLI logging behavior. |
 | `logging.format` | `text` | `text` | JSON logging is not currently supported. |
 
@@ -79,9 +79,9 @@ match:
     - ocrAny: ["advertisement"]
 ```
 
-Supported operators are `contextualAny`, `ocrAny`, and `ocrAll`. `ocrAll` requires every configured term to match, subject to Immich's actual OCR search semantics. Do not assume case folding, substring matching, regular expressions, or exact phrase semantics. No rule condition produces a numeric confidence score.
+Supported operators are `contextualAny`, `ocrAny`, and `ocrAll`. Rules compare terms case-insensitively and exactly against the search queries that returned the candidate; all terms must also appear in the matching `search.contextual` or `search.ocr` list. `ocrAll` means every listed OCR query independently returned the asset; it does not mean those terms were present together in one OCR document. Do not assume that Immich's own OCR search performs substring matching, regular expressions, or exact phrase matching. No rule condition produces a numeric confidence score. See [classification](classification.md) for details.
 
-When both `all` and `any` are present, both groups must be satisfied. `not`, when present, must not match. No condition in `exclude` may match. A match section must include at least one positive condition (`all`, `any`, or `not`); exclusions alone are not a classification rule.
+When both `all` and `any` are present, both groups must be satisfied. `not`, when present, must not match. No condition in `exclude` may match. A match section must include at least one positive condition in `all` or `any`; `not` and `exclude` only restrict a positive rule.
 
 ## Commands and exit codes
 
@@ -91,7 +91,7 @@ immich-smart-organizer config validate [--config PATH]
 immich-smart-organizer scan [--config PATH] [--dry-run] [--full] [--limit N] [--category NAME] [--verbose]
 ```
 
-The current `scan` implementation checks the server version and performs configured read-only OCR and contextual candidate searches. It reports discovered candidates and partial-coverage reasons; classification and library actions are not implemented yet, so no scan invocation changes library assets. `--full` means full re-evaluation of candidates Immich search can discover, not exhaustive library enumeration. Incremental state is not applied in this phase.
+The current `scan` implementation checks the server version, performs configured read-only OCR and contextual candidate searches, evaluates category rules, and reports a dry-run plan for configured actions. It sends no library mutation requests in this phase, even if `processing.dryRun` is false. `--full` means full re-evaluation of candidates Immich search can discover, not exhaustive library enumeration. Incremental state is not applied in this phase.
 
 | Code | Meaning |
 |---:|---|
