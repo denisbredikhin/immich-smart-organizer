@@ -46,7 +46,9 @@ internal static class CommandLineApplication
             return 0;
         }
 
-        error.WriteLine($"Error: unsupported argument '{args[0]}'.");
+        error.WriteLine(args.Length > 1
+            ? "Error: expected a single option (--help, -h, --version, or -v)."
+            : $"Error: unsupported argument '{args[0]}'.");
         error.WriteLine("Use --help to see available options.");
         return 2;
     }
