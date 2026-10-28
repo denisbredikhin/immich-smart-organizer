@@ -15,7 +15,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, argument);
 
         Assert.AreEqual(0, result.ExitCode);
-        StringAssert.Contains(result.Output, "immich-smart-organizer config validate [--config PATH]");
+        Assert.Contains("immich-smart-organizer config validate [--config PATH]", result.Output);
         Assert.AreEqual(string.Empty, result.Error);
     }
 
@@ -26,7 +26,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path);
 
         Assert.AreEqual(0, result.ExitCode);
-        StringAssert.Contains(result.Output, "Usage:");
+        Assert.Contains("Usage:", result.Output);
         Assert.AreEqual(string.Empty, result.Error);
     }
 
@@ -51,8 +51,8 @@ public sealed class CommandLineApplicationTests
 
         Assert.AreEqual(2, result.ExitCode);
         Assert.AreEqual(string.Empty, result.Output);
-        StringAssert.Contains(result.Error, "unsupported argument '--unknown'");
-        StringAssert.Contains(result.Error, "Use --help");
+        Assert.Contains("unsupported argument '--unknown'", result.Error);
+        Assert.Contains("Use --help", result.Error);
     }
 
     [TestMethod]
@@ -64,9 +64,9 @@ public sealed class CommandLineApplicationTests
 
         Assert.AreEqual(0, result.ExitCode);
         Assert.IsTrue(File.Exists(configurationPath));
-        var yaml = await File.ReadAllTextAsync(configurationPath);
-        StringAssert.Contains(yaml, "dryRun: true");
-        StringAssert.Contains(yaml, "archive: false");
+        var yaml = await File.ReadAllTextAsync(configurationPath, TestContext.CancellationToken);
+        Assert.Contains("dryRun: true", yaml);
+        Assert.Contains("archive: false", yaml);
         Assert.IsFalse(yaml.Contains("apiKey:", StringComparison.Ordinal));
 
         Dictionary<string, string?> environmentVariables = new(StringComparer.Ordinal)
@@ -79,7 +79,7 @@ public sealed class CommandLineApplicationTests
             environmentVariables);
 
         Assert.AreEqual(0, validation.ExitCode);
-        StringAssert.Contains(validation.Output, "Configuration is valid.");
+        Assert.Contains("Configuration is valid.", validation.Output);
         Assert.IsFalse(validation.Output.Contains("test-api-key", StringComparison.Ordinal));
         Assert.AreEqual(string.Empty, validation.Error);
     }
@@ -94,7 +94,7 @@ public sealed class CommandLineApplicationTests
 
         Assert.AreEqual(0, result.ExitCode);
         Assert.IsTrue(File.Exists(Path.Combine(outputDirectory, "custom.yaml")));
-        StringAssert.Contains(result.Output, Path.Combine(outputDirectory, "custom.yaml"));
+        Assert.Contains(Path.Combine(outputDirectory, "custom.yaml"), result.Output);
     }
 
     [TestMethod]
@@ -104,7 +104,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["init", "--output", "missing/custom.yaml"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "output directory does not exist");
+        Assert.Contains("output directory does not exist", result.Error);
         Assert.IsFalse(Directory.Exists(Path.Combine(directory.Path, "missing")));
     }
 
@@ -115,7 +115,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["init", "--unknown"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "usage: init [--output PATH]");
+        Assert.Contains("usage: init [--output PATH]", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -125,13 +125,13 @@ public sealed class CommandLineApplicationTests
         using TemporaryDirectory directory = new();
         const string existingContent = "preserve this file";
         var configurationPath = Path.Combine(directory.Path, "immich-smart-organizer.yaml");
-        await File.WriteAllTextAsync(configurationPath, existingContent);
+        await File.WriteAllTextAsync(configurationPath, existingContent, TestContext.CancellationToken);
 
         var result = await ExecuteAsync(directory.Path, ["init"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        Assert.AreEqual(existingContent, await File.ReadAllTextAsync(configurationPath));
-        StringAssert.Contains(result.Error, "refusing to overwrite");
+        Assert.AreEqual(existingContent, await File.ReadAllTextAsync(configurationPath, TestContext.CancellationToken));
+        Assert.Contains("refusing to overwrite", result.Error);
     }
 
     [TestMethod]
@@ -142,7 +142,7 @@ public sealed class CommandLineApplicationTests
         Directory.CreateDirectory(configDirectory);
         await File.WriteAllTextAsync(
             Path.Combine(configDirectory, "explicit.yaml"),
-            TestConfiguration.ValidYaml);
+            TestConfiguration.ValidYaml, TestContext.CancellationToken);
         Dictionary<string, string?> environmentVariables = new(StringComparer.Ordinal)
         {
             ["IMMICH_API_KEY"] = "test-api-key"
@@ -154,7 +154,7 @@ public sealed class CommandLineApplicationTests
             environmentVariables);
 
         Assert.AreEqual(0, result.ExitCode);
-        StringAssert.Contains(result.Output, Path.Combine(configDirectory, "explicit.yaml"));
+        Assert.Contains(Path.Combine(configDirectory, "explicit.yaml"), result.Output);
         Assert.IsFalse(result.Output.Contains("test-api-key", StringComparison.Ordinal));
     }
 
@@ -165,7 +165,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["config", "validate"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "Run 'immich-smart-organizer init' to create one.");
+        Assert.Contains("Run 'immich-smart-organizer init' to create one.", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -176,7 +176,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["config", "validate", "--config"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "usage: config validate [--config PATH]");
+        Assert.Contains("usage: config validate [--config PATH]", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -189,7 +189,7 @@ public sealed class CommandLineApplicationTests
             ["config", "validate", "--config", "first.yaml", "--config", "second.yaml"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "usage: config validate [--config PATH]");
+        Assert.Contains("usage: config validate [--config PATH]", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -202,7 +202,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["scan", "--limit", limit]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "between 1 and 100000");
+        Assert.Contains("between 1 and 100000", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -216,7 +216,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["scan", option]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, $"option '{option}' {expectedMessage}");
+        Assert.Contains($"option '{option}' {expectedMessage}", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -229,7 +229,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["scan", "--limit", limit]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "must be an integer between 1 and 100000");
+        Assert.Contains("must be an integer between 1 and 100000", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -240,7 +240,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["scan", "--full", "--full"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "cannot be specified more than once");
+        Assert.Contains("cannot be specified more than once", result.Error);
     }
 
     [TestMethod]
@@ -250,7 +250,7 @@ public sealed class CommandLineApplicationTests
         var result = await ExecuteAsync(directory.Path, ["scan", "--unknown"]);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "unsupported scan option '--unknown'");
+        Assert.Contains("unsupported scan option '--unknown'", result.Error);
     }
 
     [TestMethod]
@@ -258,7 +258,7 @@ public sealed class CommandLineApplicationTests
     {
         using TemporaryDirectory directory = new();
         var configurationPath = Path.Combine(directory.Path, "scan.yaml");
-        await File.WriteAllTextAsync(configurationPath, TestConfiguration.ScanYaml);
+        await File.WriteAllTextAsync(configurationPath, TestConfiguration.ScanYaml, TestContext.CancellationToken);
         StubHttpMessageHandler handler = new((request, _) =>
         {
             var response = request.Uri.AbsolutePath switch
@@ -282,21 +282,20 @@ public sealed class CommandLineApplicationTests
 
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual(string.Empty, result.Error);
-        StringAssert.Contains(result.Output, "Immich version: 3.3.5");
-        StringAssert.Contains(result.Output, "Candidates discovered: 3");
-        StringAssert.Contains(result.Output, "Coverage: search windows completed");
-        StringAssert.Contains(result.Output, "No library changes were made.");
-        CollectionAssert.AreEqual(
-            new[] { "/api/server/version", "/api/search/smart", "/api/search/metadata" },
-            handler.Requests.Select(static request => request.Uri.AbsolutePath).ToArray());
+        Assert.Contains("Immich version: 3.3.5", result.Output);
+        Assert.Contains("Candidates discovered: 3", result.Output);
+        Assert.Contains("Coverage: search windows completed", result.Output);
+        Assert.Contains("No library changes were made.", result.Output);
+        Assert.AreSequenceEqual(
+            expected, handler.Requests.Select(static request => request.Uri.AbsolutePath).ToArray());
         Assert.IsFalse(handler.Requests[0].Headers.ContainsKey("x-api-key"));
         Assert.IsTrue(handler.Requests.Skip(1).All(static request =>
             request.Headers.TryGetValue("x-api-key", out var values)
             && values.SequenceEqual(["test-api-key"])));
-        StringAssert.Contains(handler.Requests[1].Body!, "\"query\":\"receipt\"");
-        StringAssert.Contains(handler.Requests[1].Body!, "\"filter\":{\"type\":{\"eq\":\"IMAGE\"}}");
-        StringAssert.Contains(handler.Requests[2].Body!, "\"matches\":\"invoice\"");
-        StringAssert.Contains(handler.Requests[2].Body!, "\"type\":{\"eq\":\"IMAGE\"}");
+        Assert.Contains("\"query\":\"receipt\"", handler.Requests[1].Body!);
+        Assert.Contains("\"filter\":{\"type\":{\"eq\":\"IMAGE\"}}", handler.Requests[1].Body!);
+        Assert.Contains("\"matches\":\"invoice\"", handler.Requests[2].Body!);
+        Assert.Contains("\"type\":{\"eq\":\"IMAGE\"}", handler.Requests[2].Body!);
         Assert.IsTrue(handler.Requests.All(static request =>
             request.Method == HttpMethod.Get
             || request.Method == HttpMethod.Post
@@ -311,7 +310,7 @@ public sealed class CommandLineApplicationTests
             "http://localhost:2283",
             "http://localhost:2283/#/photos",
             StringComparison.Ordinal);
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), scanYaml);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), scanYaml, TestContext.CancellationToken);
         var handler = new StubHttpMessageHandler((_, _) =>
             throw new InvalidOperationException("Invalid configuration must not send requests."));
 
@@ -322,16 +321,16 @@ public sealed class CommandLineApplicationTests
             () => new HttpClient(handler));
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "Configuration error:");
-        StringAssert.Contains(result.Error, "without embedded credentials, query, or fragment");
-        Assert.AreEqual(0, handler.Requests.Count);
+        Assert.Contains("Configuration error:", result.Error);
+        Assert.Contains("without embedded credentials, query, or fragment", result.Error);
+        Assert.IsEmpty(handler.Requests);
     }
 
     [TestMethod]
     public async Task Scan_rejects_unsupported_server_before_searching()
     {
         using TemporaryDirectory directory = new();
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml, TestContext.CancellationToken);
         StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
             StubHttpMessageHandler.Json("""{"major":3,"minor":1,"patch":9,"prerelease":0}""")));
 
@@ -342,8 +341,8 @@ public sealed class CommandLineApplicationTests
             () => new HttpClient(handler));
 
         Assert.AreEqual(4, result.ExitCode);
-        StringAssert.Contains(result.Error, "is not supported");
-        Assert.AreEqual(1, handler.Requests.Count);
+        Assert.Contains("is not supported", result.Error);
+        Assert.HasCount(1, handler.Requests);
         Assert.AreEqual("/api/server/version", handler.Requests[0].Uri.AbsolutePath);
     }
 
@@ -351,7 +350,7 @@ public sealed class CommandLineApplicationTests
     public async Task Scan_maps_authentication_failure_to_exit_code_three()
     {
         using TemporaryDirectory directory = new();
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml, TestContext.CancellationToken);
         StubHttpMessageHandler handler = new((request, _) => Task.FromResult(
             request.Uri.AbsolutePath == "/api/server/version"
                 ? StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}""")
@@ -364,8 +363,8 @@ public sealed class CommandLineApplicationTests
             () => new HttpClient(handler));
 
         Assert.AreEqual(3, result.ExitCode);
-        StringAssert.Contains(result.Error, "authentication or permission failure");
-        Assert.AreEqual(2, handler.Requests.Count);
+        Assert.Contains("authentication or permission failure", result.Error);
+        Assert.HasCount(2, handler.Requests);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -373,7 +372,7 @@ public sealed class CommandLineApplicationTests
     public async Task Scan_returns_partial_exit_code_when_a_query_exhausts_retries()
     {
         using TemporaryDirectory directory = new();
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), TestConfiguration.ScanYaml, TestContext.CancellationToken);
         StubHttpMessageHandler handler = new((request, _) =>
         {
             var response = request.Uri.AbsolutePath switch
@@ -393,10 +392,10 @@ public sealed class CommandLineApplicationTests
             () => new HttpClient(handler));
 
         Assert.AreEqual(5, result.ExitCode);
-        StringAssert.Contains(result.Output, "Candidates discovered: 1");
-        StringAssert.Contains(result.Output, "Coverage: partial");
-        StringAssert.Contains(result.Output, "failed after bounded retries");
-        Assert.AreEqual(5, handler.Requests.Count);
+        Assert.Contains("Candidates discovered: 1", result.Output);
+        Assert.Contains("Coverage: partial", result.Output);
+        Assert.Contains("failed after bounded retries", result.Output);
+        Assert.HasCount(5, handler.Requests);
     }
 
     [TestMethod]
@@ -404,7 +403,7 @@ public sealed class CommandLineApplicationTests
     {
         using TemporaryDirectory directory = new();
         var configurationPath = Path.Combine(directory.Path, "scan.yaml");
-        await File.WriteAllTextAsync(configurationPath, TestConfiguration.ValidYaml);
+        await File.WriteAllTextAsync(configurationPath, TestConfiguration.ValidYaml, TestContext.CancellationToken);
         Dictionary<string, string?> environmentVariables = new(StringComparer.Ordinal)
         {
             ["IMMICH_API_KEY"] = "test-api-key"
@@ -416,7 +415,7 @@ public sealed class CommandLineApplicationTests
             environmentVariables);
 
         Assert.AreEqual(2, result.ExitCode);
-        StringAssert.Contains(result.Error, "category 'missing' is not configured");
+        Assert.Contains("category 'missing' is not configured", result.Error);
         Assert.AreEqual(string.Empty, result.Output);
     }
 
@@ -457,4 +456,8 @@ public sealed class CommandLineApplicationTests
         });
 
     private sealed record CommandResult(int ExitCode, string Output, string Error);
+
+    public TestContext TestContext { get; set; } = null!;
+
+    private static readonly string[] expected = new[] { "/api/server/version", "/api/search/smart", "/api/search/metadata" };
 }

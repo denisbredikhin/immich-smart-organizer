@@ -14,7 +14,7 @@ public sealed class ConfigurationLoaderTests
         var explicitPath = await WriteConfigAsync(directory.Path, "explicit.yaml", withBatchSize: 33);
         TestCommandEnvironment environment = CreateEnvironment(directory.Path, environmentPath);
 
-        var loaded = await ConfigurationLoader.LoadAsync(explicitPath, environment);
+        var loaded = await ConfigurationLoader.LoadAsync(explicitPath, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(Path.GetFullPath(explicitPath), loaded.ConfigurationPath);
         Assert.AreEqual(33, loaded.Configuration.Scanner!.BatchSize);
@@ -30,7 +30,7 @@ public sealed class ConfigurationLoaderTests
         await WriteConfigAsync(directory.Path, "immich-smart-organizer.yaml", withBatchSize: 11);
         TestCommandEnvironment environment = CreateEnvironment(directory.Path, environmentPath);
 
-        var loaded = await ConfigurationLoader.LoadAsync(null, environment);
+        var loaded = await ConfigurationLoader.LoadAsync(null, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(Path.GetFullPath(environmentPath), loaded.ConfigurationPath);
         Assert.AreEqual(22, loaded.Configuration.Scanner!.BatchSize);
@@ -43,7 +43,7 @@ public sealed class ConfigurationLoaderTests
         await WriteConfigAsync(directory.Path, "immich-smart-organizer.yaml", withBatchSize: 11);
         TestCommandEnvironment environment = CreateEnvironment(directory.Path);
 
-        var loaded = await ConfigurationLoader.LoadAsync(null, environment);
+        var loaded = await ConfigurationLoader.LoadAsync(null, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(
             Path.Combine(directory.Path, "immich-smart-organizer.yaml"),
@@ -62,7 +62,7 @@ public sealed class ConfigurationLoaderTests
 
         var loaded = await ConfigurationLoader.LoadAsync(
             Path.Combine("configs", "organizer.yaml"),
-            environment);
+            environment, TestContext.CancellationToken);
 
         Assert.AreEqual(
             Path.Combine(configDirectory, "organizer.yaml"),
@@ -76,9 +76,9 @@ public sealed class ConfigurationLoaderTests
         using TemporaryDirectory directory = new();
         var yaml = TestConfiguration.ValidYaml.Replace("  dryRun: true\n", string.Empty, StringComparison.Ordinal);
         var configurationPath = Path.Combine(directory.Path, "omitted.yaml");
-        await File.WriteAllTextAsync(configurationPath, yaml);
+        await File.WriteAllTextAsync(configurationPath, yaml, TestContext.CancellationToken);
 
-        var loaded = await ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path));
+        var loaded = await ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken);
 
         Assert.IsTrue(loaded.Configuration.Processing!.DryRun);
     }
@@ -90,9 +90,9 @@ public sealed class ConfigurationLoaderTests
         TestCommandEnvironment environment = CreateEnvironment(directory.Path);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(string.Empty, environment));
+            () => ConfigurationLoader.LoadAsync(string.Empty, environment, TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "explicit configuration path cannot be empty");
+        Assert.Contains("explicit configuration path cannot be empty", exception.Message);
     }
 
     [TestMethod]
@@ -108,10 +108,10 @@ public sealed class ConfigurationLoaderTests
             "path: ../state/state.db",
             StringComparison.Ordinal);
         var configurationPath = Path.Combine(configDirectory, "organizer.yaml");
-        await File.WriteAllTextAsync(configurationPath, yaml);
+        await File.WriteAllTextAsync(configurationPath, yaml, TestContext.CancellationToken);
         TestCommandEnvironment environment = CreateEnvironment(directory.Path);
 
-        var loaded = await ConfigurationLoader.LoadAsync(configurationPath, environment);
+        var loaded = await ConfigurationLoader.LoadAsync(configurationPath, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(Path.Combine(stateDirectory, "state.db"), loaded.StateDatabasePath);
     }
@@ -145,4 +145,6 @@ public sealed class ConfigurationLoaderTests
 
         return new TestCommandEnvironment(currentDirectory, environmentVariables);
     }
+
+    public TestContext TestContext { get; set; } = null!;
 }

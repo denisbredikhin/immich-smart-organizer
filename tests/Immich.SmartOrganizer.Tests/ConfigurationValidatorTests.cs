@@ -14,9 +14,9 @@ public sealed class ConfigurationValidatorTests
             TestConfiguration.ValidYaml.Replace("batchSize: 100", "batchSize: [", StringComparison.Ordinal));
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "Invalid YAML");
+        Assert.Contains("Invalid YAML", exception.Message);
     }
 
     [TestMethod]
@@ -30,9 +30,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
-        StringAssert.Contains(exception.Message, "Invalid YAML or configuration property");
-        StringAssert.Contains(exception.Message, "Invalid YAML or configuration property");
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
+        Assert.Contains("Invalid YAML or configuration property", exception.Message);
+        Assert.Contains("Invalid YAML or configuration property", exception.Message);
     }
 
     [TestMethod]
@@ -43,9 +43,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "processing.dryRun cannot be null.");
+        Assert.Contains("processing.dryRun cannot be null.", exception.Message);
     }
 
     [TestMethod]
@@ -59,9 +59,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "duplicate key");
+        Assert.Contains("duplicate key", exception.Message);
     }
 
     [TestMethod]
@@ -75,9 +75,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "unsupportedOption");
+        Assert.Contains("unsupportedOption", exception.Message);
     }
 
     [TestMethod]
@@ -91,9 +91,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "delete");
+        Assert.Contains("delete", exception.Message);
     }
 
     [TestMethod]
@@ -107,9 +107,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "The 'immich' section is required.");
+        Assert.Contains("The 'immich' section is required.", exception.Message);
     }
 
     [TestMethod]
@@ -123,9 +123,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "At least one category is required.");
+        Assert.Contains("At least one category is required.", exception.Message);
     }
 
     [TestMethod]
@@ -144,11 +144,11 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "categories[0].search is required.");
-        StringAssert.Contains(exception.Message, "categories[0].match is required.");
-        StringAssert.Contains(exception.Message, "categories[0].actions cannot be null.");
+        Assert.Contains("categories[0].search is required.", exception.Message);
+        Assert.Contains("categories[0].match is required.", exception.Message);
+        Assert.Contains("categories[0].actions cannot be null.", exception.Message);
     }
 
     [TestMethod]
@@ -167,11 +167,11 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(
-            exception.Message,
-            "categories[0].search must contain at least one contextual or OCR query.");
+        Assert.Contains(
+            "categories[0].search must contain at least one contextual or OCR query.",
+            exception.Message);
     }
 
     [TestMethod]
@@ -185,9 +185,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "immich.apiKeyEnv must be a valid environment variable name.");
+        Assert.Contains("immich.apiKeyEnv must be a valid environment variable name.", exception.Message);
     }
 
     [TestMethod]
@@ -203,10 +203,10 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, propertyName);
-        StringAssert.Contains(exception.Message, "must be");
+        Assert.Contains(propertyName, exception.Message);
+        Assert.Contains("must be", exception.Message);
     }
 
     [TestMethod]
@@ -220,9 +220,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "immich.url must be an absolute HTTP or HTTPS URL");
+        Assert.Contains("immich.url must be an absolute HTTP or HTTPS URL", exception.Message);
     }
 
     [TestMethod]
@@ -238,9 +238,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "without embedded credentials, query, or fragment");
+        Assert.Contains("without embedded credentials, query, or fragment", exception.Message);
     }
 
     [TestMethod]
@@ -267,9 +267,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, $"{propertyName} must be between {expectedRange}");
+        Assert.Contains($"{propertyName} must be between {expectedRange}", exception.Message);
     }
 
     [TestMethod]
@@ -292,11 +292,11 @@ public sealed class ConfigurationValidatorTests
         var minimumPath = await WriteConfigAsync(directory.Path, baseYaml);
         var maximumYaml = TestConfiguration.ValidYaml.Replace(originalValue, maximumValue, StringComparison.Ordinal);
         var maximumPath = Path.Combine(directory.Path, "maximum.yaml");
-        await File.WriteAllTextAsync(maximumPath, maximumYaml);
+        await File.WriteAllTextAsync(maximumPath, maximumYaml, TestContext.CancellationToken);
         TestCommandEnvironment environment = CreateEnvironment(directory.Path);
 
-        var minimum = await ConfigurationLoader.LoadAsync(minimumPath, environment);
-        var maximum = await ConfigurationLoader.LoadAsync(maximumPath, environment);
+        var minimum = await ConfigurationLoader.LoadAsync(minimumPath, environment, TestContext.CancellationToken);
+        var maximum = await ConfigurationLoader.LoadAsync(maximumPath, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(expectedMinimum, GetNumericValue(minimum.Configuration, propertyName));
         Assert.AreEqual(expectedMaximum, GetNumericValue(maximum.Configuration, propertyName));
@@ -309,8 +309,8 @@ public sealed class ConfigurationValidatorTests
         var source = TestConfiguration.ValidYaml;
         var matchMarker = source.IndexOf("match:", StringComparison.Ordinal);
         var actionsMarker = source.IndexOf("actions:", matchMarker, StringComparison.Ordinal);
-        Assert.IsTrue(matchMarker >= 0);
-        Assert.IsTrue(actionsMarker > matchMarker);
+        Assert.IsGreaterThanOrEqualTo(0, matchMarker);
+        Assert.IsGreaterThan(matchMarker, actionsMarker);
         var matchStart = source.LastIndexOf('\n', matchMarker) + 1;
         var actionsStart = source.LastIndexOf('\n', actionsMarker) + 1;
         var indentation = source[matchStart..matchMarker];
@@ -320,9 +320,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "match.all[0].ocrAny must contain at least one term");
+        Assert.Contains("match.all[0].ocrAny must contain at least one term", exception.Message);
     }
 
     [TestMethod]
@@ -342,9 +342,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "must specify exactly one supported condition operator");
+        Assert.Contains("must specify exactly one supported condition operator", exception.Message);
     }
 
     [TestMethod]
@@ -363,9 +363,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "match must contain at least one condition");
+        Assert.Contains("match must contain at least one condition", exception.Message);
     }
 
     [TestMethod]
@@ -376,9 +376,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "Category name 'Receipts' is duplicated.");
+        Assert.Contains("Category name 'Receipts' is duplicated.", exception.Message);
     }
 
     [TestMethod]
@@ -390,7 +390,7 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(
                 configurationPath,
-                CreateEnvironment(directory.Path, apiKey: null)));
+                CreateEnvironment(directory.Path, apiKey: null), TestContext.CancellationToken));
 
         Assert.AreEqual(
             "Environment variable 'IMMICH_API_KEY' is not set or is empty.",
@@ -408,9 +408,9 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "without embedded credentials");
+        Assert.Contains("without embedded credentials", exception.Message);
         Assert.IsFalse(exception.Message.Contains("private-password", StringComparison.Ordinal));
     }
 
@@ -426,9 +426,9 @@ public sealed class ConfigurationValidatorTests
         TestCommandEnvironment environment = CreateEnvironment(directory.Path, apiKey: "private-api-key-value");
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, environment));
+            () => ConfigurationLoader.LoadAsync(configurationPath, environment, TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "immich.url");
+        Assert.Contains("immich.url", exception.Message);
         Assert.IsFalse(exception.Message.Contains("private-api-key-value", StringComparison.Ordinal));
     }
 
@@ -443,22 +443,18 @@ public sealed class ConfigurationValidatorTests
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
 
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        StringAssert.Contains(exception.Message, "directory for state.path does not exist");
+        Assert.Contains("directory for state.path does not exist", exception.Message);
     }
 
     [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public async Task Validate_rejects_existing_state_file_in_non_writable_directory()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            Assert.Inconclusive("Unix directory permissions are required for this test.");
-            return;
-        }
-
         using TemporaryDirectory directory = new();
-        await File.WriteAllTextAsync(Path.Combine(directory.Path, "state.db"), string.Empty);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "state.db"), string.Empty, TestContext.CancellationToken);
         var yaml = TestConfiguration.ValidYaml.Replace("path: ./state.db", "path: state.db", StringComparison.Ordinal);
         var configurationPath = await WriteConfigAsync(directory.Path, yaml);
         var originalMode = File.GetUnixFileMode(directory.Path);
@@ -484,9 +480,9 @@ public sealed class ConfigurationValidatorTests
             }
 
             var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
-                () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+                () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-            StringAssert.Contains(exception.Message, "directory or file for state.path is not writable");
+            Assert.Contains("directory or file for state.path is not writable", exception.Message);
         }
         finally
         {
@@ -525,4 +521,6 @@ public sealed class ConfigurationValidatorTests
             "processing.maxErrorsPerRun" => configuration.Processing!.MaxErrorsPerRun,
             _ => throw new AssertFailedException($"Unexpected configuration property '{propertyName}'.")
         };
+
+    public TestContext TestContext { get; set; } = null!;
 }

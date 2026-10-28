@@ -22,7 +22,7 @@ internal static class Program
                 Console.Out,
                 Console.Error,
                 new SystemCommandEnvironment(),
-                cancellationSource.Token);
+                cancellationToken: cancellationSource.Token);
         }
         finally
         {

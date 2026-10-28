@@ -17,7 +17,7 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
 
-        var version = await client.GetServerVersionAsync();
+        var version = await client.GetServerVersionAsync(TestContext.CancellationToken);
 
         Assert.AreEqual("3.3.5", version.ToString());
         Assert.AreEqual("/api/server/version", handler.Requests.Single().Uri.AbsolutePath);
@@ -33,10 +33,10 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.GetServerVersionAsync());
+            () => client.GetServerVersionAsync(TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
-        StringAssert.Contains(exception.Message, "3.1.9");
+        Assert.Contains("3.1.9", exception.Message);
     }
 
     [TestMethod]
@@ -47,7 +47,7 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
 
-        await client.SearchMetadataAsync("fácture", 23, "cursor-value");
+        await client.SearchMetadataAsync("fácture", 23, "cursor-value", cancellationToken: TestContext.CancellationToken);
 
         var request = handler.Requests.Single();
         Assert.AreEqual(HttpMethod.Post, request.Method);
@@ -71,7 +71,7 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
 
-        var page = await client.SearchSmartAsync("printed invoice", 17);
+        var page = await client.SearchSmartAsync("printed invoice", 17, cancellationToken: TestContext.CancellationToken);
 
         var request = handler.Requests.Single();
         Assert.AreEqual("/api/search/smart", request.Uri.AbsolutePath);
@@ -80,7 +80,7 @@ public sealed class ImmichApiClientTests
         Assert.AreEqual("printed invoice", body.RootElement.GetProperty("query").GetString());
         Assert.AreEqual(17, body.RootElement.GetProperty("size").GetInt32());
         Assert.AreEqual(JsonValueKind.Object, body.RootElement.GetProperty("filter").ValueKind);
-        Assert.AreEqual(0, body.RootElement.GetProperty("filter").EnumerateObject().Count());
+        Assert.IsEmpty(body.RootElement.GetProperty("filter").EnumerateObject());
         Assert.AreEqual("asset-1", page.AssetIds.Single());
         Assert.IsFalse(body.RootElement.TryGetProperty("cursor", out _));
     }
@@ -105,9 +105,9 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
 
-        await client.SearchMetadataAsync("invoice", 10);
+        await client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken);
 
-        Assert.AreEqual(3, handler.Requests.Count);
+        Assert.HasCount(3, handler.Requests);
     }
 
     [TestMethod]
@@ -126,10 +126,10 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
 
-        var page = await client.SearchMetadataAsync("invoice", 10);
+        var page = await client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken);
 
-        Assert.AreEqual(0, page.AssetIds.Count);
-        Assert.AreEqual(2, handler.Requests.Count);
+        Assert.IsEmpty(page.AssetIds);
+        Assert.HasCount(2, handler.Requests);
     }
 
     [TestMethod]
@@ -141,10 +141,10 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.SearchMetadataAsync("invoice", 10));
+            () => client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.Authentication, exception.Kind);
-        Assert.AreEqual(1, handler.Requests.Count);
+        Assert.HasCount(1, handler.Requests);
         Assert.IsFalse(exception.ToString().Contains(ApiKey, StringComparison.Ordinal));
     }
 
@@ -157,10 +157,10 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.SearchMetadataAsync("invoice", 10));
+            () => client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.Transient, exception.Kind);
-        Assert.AreEqual(3, handler.Requests.Count);
+        Assert.HasCount(3, handler.Requests);
     }
 
     [TestMethod]
@@ -172,7 +172,7 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.GetServerVersionAsync());
+            () => client.GetServerVersionAsync(TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
     }
@@ -186,7 +186,7 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.SearchMetadataAsync("invoice", 10));
+            () => client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
     }
@@ -200,7 +200,7 @@ public sealed class ImmichApiClientTests
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
-            () => client.SearchMetadataAsync("invoice", 10));
+            () => client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken));
 
         Assert.AreEqual(ImmichApiFailureKind.IncompatibleApi, exception.Kind);
     }
@@ -218,7 +218,7 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = CreateClient(httpClient);
         using CancellationTokenSource cancellation = new();
-        var request = client.SearchSmartAsync("receipt", 10, cancellation.Token);
+        var request = client.SearchSmartAsync("receipt", 10, cancellationToken: cancellation.Token);
         await requestStarted.Task;
         cancellation.Cancel();
 
@@ -233,7 +233,7 @@ public sealed class ImmichApiClientTests
         using HttpClient httpClient = new(handler);
         ImmichApiClient client = new(httpClient, "https://photos.example/immich/api", ApiKey);
 
-        await client.GetServerVersionAsync();
+        await client.GetServerVersionAsync(TestContext.CancellationToken);
 
         Assert.AreEqual("/immich/api/server/version", handler.Requests.Single().Uri.AbsolutePath);
     }
@@ -252,4 +252,6 @@ public sealed class ImmichApiClientTests
             return false;
         }
     }
+
+    public TestContext TestContext { get; set; } = null!;
 }

@@ -83,8 +83,8 @@ internal sealed class ImmichApiClient
         string query,
         int size,
         string? cursor = null,
-        CancellationToken cancellationToken = default,
-        bool includeVideos = true)
+        bool includeVideos = true,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ValidatePageSize(size);
@@ -120,8 +120,8 @@ internal sealed class ImmichApiClient
     public async Task<ImmichSearchPage> SearchSmartAsync(
         string query,
         int size,
-        CancellationToken cancellationToken = default,
-        bool includeVideos = true)
+        bool includeVideos = true,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ValidatePageSize(size);
@@ -343,7 +343,7 @@ internal sealed class ImmichApiClient
             path += "/api";
         }
 
-        if (!path.EndsWith("/", StringComparison.Ordinal))
+        if (!path.EndsWith('/'))
         {
             path += "/";
         }

@@ -21,8 +21,8 @@ internal static class CommandLineApplication
         TextWriter output,
         TextWriter error,
         ICommandEnvironment environment,
-        CancellationToken cancellationToken = default,
-        Func<HttpClient>? httpClientFactory = null)
+        Func<HttpClient>? httpClientFactory = null,
+        CancellationToken cancellationToken = default)
     {
         if (args is [] or ["--help"] or ["-h"])
         {
@@ -42,7 +42,7 @@ internal static class CommandLineApplication
             {
                 "init" => await RunInitAsync(args, output, error, environment, cancellationToken),
                 "config" => await RunConfigAsync(args, output, error, environment, cancellationToken),
-                "scan" => await RunScanAsync(args, output, error, environment, cancellationToken, httpClientFactory),
+                "scan" => await RunScanAsync(args, output, error, environment, httpClientFactory, cancellationToken),
                 _ => WriteInvalidArgument(error, args[0])
             };
         }
@@ -167,8 +167,8 @@ internal static class CommandLineApplication
         TextWriter output,
         TextWriter error,
         ICommandEnvironment environment,
-        CancellationToken cancellationToken,
-        Func<HttpClient>? httpClientFactory)
+        Func<HttpClient>? httpClientFactory,
+        CancellationToken cancellationToken)
     {
         if (!TryParseScanOptions(args, out var options, out var parseError))
         {
@@ -210,8 +210,8 @@ internal static class CommandLineApplication
             selectedCategories,
             configuration.Scanner!.BatchSize,
             maxAssets,
-            cancellationToken,
-            configuration.Scanner.IncludeVideos);
+            configuration.Scanner.IncludeVideos,
+            cancellationToken);
 
         var dryRun = options.DryRun || configuration.Processing.DryRun != false;
         output.WriteLine($"Immich version: {version}");
