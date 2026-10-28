@@ -47,7 +47,7 @@ Neither the schema nor the reviewed documentation establishes exact substring, p
 
 ### Contextual / CLIP
 
-Use `POST /search/smart` with `query` for natural-language contextual search. This is separate from OCR filtering; the API does not expose a `Context` field that should be repurposed for OCR.
+Use `POST /search/smart` with `query` and a `filter` object for the structured natural-language contextual search contract; send `filter: {}` when no filtering is needed. A request containing only `query` selects the legacy page-based search in v3.3.5 instead. This is separate from OCR filtering; the API does not expose a `Context` field that should be repurposed for OCR.
 
 The response contains asset records, not a calibrated relevance score. Result ordering can be retained as server ranking, but list position must not be converted into a numeric confidence or treated as a definitive category label. The v3.3.5 service explicitly has no cursor for the new rank-aware smart-search request shape, so each query returns a bounded candidate set rather than an exhaustive result stream.
 
