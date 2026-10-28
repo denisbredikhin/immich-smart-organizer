@@ -426,3 +426,18 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Immich Smart Organizer local configuration and state
+**/immich-smart-organizer.yaml
+!examples/immich-smart-organizer.yaml
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/logs/
+/media/
+/personal-media/
+/test-media/
