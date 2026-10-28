@@ -97,17 +97,22 @@ internal static class CommandLineApplication
         }
 
         var template = await ConfigurationTemplate.ReadAsync(cancellationToken);
+        FileStream stream;
         try
         {
-            await using FileStream stream = new(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            await using StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            await writer.WriteAsync(template.AsMemory(), cancellationToken);
-            await writer.FlushAsync(cancellationToken);
+            stream = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         }
         catch (IOException) when (File.Exists(fullPath))
         {
             error.WriteLine($"Error: refusing to overwrite existing file '{fullPath}'.");
             return InvalidArguments;
+        }
+
+        await using (stream)
+        {
+            await using StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await writer.WriteAsync(template.AsMemory(), cancellationToken);
+            await writer.FlushAsync(cancellationToken);
         }
 
         output.WriteLine($"Created configuration: {fullPath}");

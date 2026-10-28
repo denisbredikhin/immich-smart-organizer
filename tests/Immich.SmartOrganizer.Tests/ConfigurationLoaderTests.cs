@@ -71,6 +71,19 @@ public sealed class ConfigurationLoaderTests
     }
 
     [TestMethod]
+    public async Task Load_preserves_dry_run_default_when_setting_is_omitted()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace("  dryRun: true\n", string.Empty, StringComparison.Ordinal);
+        var configurationPath = Path.Combine(directory.Path, "omitted.yaml");
+        await File.WriteAllTextAsync(configurationPath, yaml);
+
+        var loaded = await ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path));
+
+        Assert.IsTrue(loaded.Configuration.Processing!.DryRun);
+    }
+
+    [TestMethod]
     public async Task Load_rejects_empty_explicit_path()
     {
         using TemporaryDirectory directory = new();

@@ -11,6 +11,7 @@ internal static class ConfigurationLoader
 
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .WithDuplicateKeyChecking()
         .Build();
 
     public static async Task<LoadedConfiguration> LoadAsync(

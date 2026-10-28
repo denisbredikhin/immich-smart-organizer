@@ -40,7 +40,7 @@ internal sealed class AppConfiguration
 
     internal sealed class ProcessingOptions
     {
-        public bool DryRun { get; set; } = true;
+        public bool? DryRun { get; set; } = true;
 
         public int MaxAssetsPerRun { get; set; } = 1000;
 

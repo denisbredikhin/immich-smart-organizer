@@ -36,6 +36,35 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
+    public async Task Validate_rejects_null_dry_run_setting()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace("dryRun: true", "dryRun: null", StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+
+        StringAssert.Contains(exception.Message, "processing.dryRun cannot be null.");
+    }
+
+    [TestMethod]
+    public async Task Validate_rejects_duplicate_yaml_keys()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace(
+            "dryRun: true",
+            "dryRun: true\n  dryRun: false",
+            StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+
+        StringAssert.Contains(exception.Message, "duplicate key");
+    }
+
+    [TestMethod]
     public async Task Validate_rejects_unknown_property()
     {
         using TemporaryDirectory directory = new();
@@ -399,6 +428,52 @@ public sealed class ConfigurationValidatorTests
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
 
         StringAssert.Contains(exception.Message, "directory for state.path does not exist");
+    }
+
+    [TestMethod]
+    public async Task Validate_rejects_existing_state_file_in_non_writable_directory()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("Unix directory permissions are required for this test.");
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "state.db"), string.Empty);
+        var yaml = TestConfiguration.ValidYaml.Replace("path: ./state.db", "path: state.db", StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+        var originalMode = File.GetUnixFileMode(directory.Path);
+
+        try
+        {
+            File.SetUnixFileMode(
+                directory.Path,
+                originalMode & ~(UnixFileMode.UserWrite | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite));
+
+            var probePath = Path.Combine(directory.Path, ".write-probe");
+            try
+            {
+                using FileStream probe = new(
+                    probePath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None);
+                Assert.Inconclusive("The current user can write to a directory without write permissions.");
+            }
+            catch (Exception probeException) when (probeException is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+                () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path)));
+
+            StringAssert.Contains(exception.Message, "directory or file for state.path is not writable");
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory.Path, originalMode);
+        }
     }
 
     private static async Task<string> WriteConfigAsync(string directory, string yaml)

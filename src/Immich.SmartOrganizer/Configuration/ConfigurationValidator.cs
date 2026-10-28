@@ -90,6 +90,11 @@ internal static class ConfigurationValidator
             return;
         }
 
+        if (processing.DryRun is null)
+        {
+            errors.Add("processing.dryRun cannot be null.");
+        }
+
         ValidateRange(processing.MaxAssetsPerRun, 1, 100_000, "processing.maxAssetsPerRun", errors);
         ValidateRange(
             processing.MaxArchiveActionsPerRun,
@@ -338,17 +343,15 @@ internal static class ConfigurationValidator
             {
                 using FileStream database = new(fullPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
             }
-            else
-            {
-                var probePath = Path.Combine(stateDirectory, $".immich-smart-organizer-{Guid.NewGuid():N}.tmp");
-                using FileStream probe = new(
-                    probePath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    bufferSize: 1,
-                    FileOptions.DeleteOnClose);
-            }
+
+            var probePath = Path.Combine(stateDirectory, $".immich-smart-organizer-{Guid.NewGuid():N}.tmp");
+            using FileStream probe = new(
+                probePath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 1,
+                FileOptions.DeleteOnClose);
         }
         catch (IOException)
         {
