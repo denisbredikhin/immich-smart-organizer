@@ -120,6 +120,8 @@ public sealed class ClassificationEngineTests
         Assert.Contains(
             reason => reason.Contains(expectedReason, StringComparison.Ordinal),
             result[0].CategoryEvaluations[0].UnmetConditions);
+        Assert.AreEqual(ClassificationStatus.Unmatched, result[0].Status);
+        Assert.IsEmpty(result[0].MatchingCategories);
     }
 
     [TestMethod]
@@ -134,13 +136,19 @@ public sealed class ClassificationEngineTests
             new AppConfiguration.MatchOptions
             {
                 Any = [new AppConfiguration.MatchCondition { OcrAny = ["receipt"] }]
-            });
+            },
+            album: "Receipts",
+            tag: "Documents/Receipts",
+            archive: true);
         var invoices = CreateCategory(
             "invoices",
             new AppConfiguration.MatchOptions
             {
                 Any = [new AppConfiguration.MatchCondition { OcrAny = ["invoice"] }]
-            });
+            },
+            album: "Invoices",
+            tag: "Documents/Invoices",
+            archive: true);
         var asset = CreateAsset(
             ("receipts", SearchEvidenceKind.Ocr, "receipt"),
             ("invoices", SearchEvidenceKind.Ocr, "invoice"));
