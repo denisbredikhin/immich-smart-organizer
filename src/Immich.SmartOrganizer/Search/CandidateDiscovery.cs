@@ -199,9 +199,7 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         }
 
         public DiscoveredAsset[] ToAssets() =>
-            _orderedAssets
-                .Select(static asset => new DiscoveredAsset(asset.Id, asset.Evidence))
-                .ToArray();
+            [.. _orderedAssets.Select(static asset => new DiscoveredAsset(asset.Id, asset.Evidence))];
 
         private sealed class MutableAsset(string id)
         {
