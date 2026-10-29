@@ -17,7 +17,7 @@ public sealed class ConfigurationLoaderTests
         var loaded = await ConfigurationLoader.LoadAsync(explicitPath, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(Path.GetFullPath(explicitPath), loaded.ConfigurationPath);
-        Assert.AreEqual(33, loaded.Configuration.Scanner!.BatchSize);
+        Assert.AreEqual(33, loaded.Configuration.Scanner.BatchSize);
         Assert.AreEqual(Path.Combine(directory.Path, "state.db"), loaded.StateDatabasePath);
         Assert.IsTrue(File.Exists(currentDirectoryPath));
     }
@@ -33,7 +33,7 @@ public sealed class ConfigurationLoaderTests
         var loaded = await ConfigurationLoader.LoadAsync(null, environment, TestContext.CancellationToken);
 
         Assert.AreEqual(Path.GetFullPath(environmentPath), loaded.ConfigurationPath);
-        Assert.AreEqual(22, loaded.Configuration.Scanner!.BatchSize);
+        Assert.AreEqual(22, loaded.Configuration.Scanner.BatchSize);
     }
 
     [TestMethod]
@@ -48,7 +48,7 @@ public sealed class ConfigurationLoaderTests
         Assert.AreEqual(
             Path.Combine(directory.Path, "immich-smart-organizer.yaml"),
             loaded.ConfigurationPath);
-        Assert.AreEqual(11, loaded.Configuration.Scanner!.BatchSize);
+        Assert.AreEqual(11, loaded.Configuration.Scanner.BatchSize);
     }
 
     [TestMethod]
@@ -67,7 +67,7 @@ public sealed class ConfigurationLoaderTests
         Assert.AreEqual(
             Path.Combine(configDirectory, "organizer.yaml"),
             loaded.ConfigurationPath);
-        Assert.AreEqual(41, loaded.Configuration.Scanner!.BatchSize);
+        Assert.AreEqual(41, loaded.Configuration.Scanner.BatchSize);
     }
 
     [TestMethod]
@@ -80,7 +80,31 @@ public sealed class ConfigurationLoaderTests
 
         var loaded = await ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken);
 
-        Assert.IsTrue(loaded.Configuration.Processing!.DryRun);
+        Assert.IsTrue(loaded.Configuration.Processing.DryRun);
+    }
+
+    [TestMethod]
+    public async Task Load_uses_defaults_when_optional_sections_are_omitted()
+    {
+        using TemporaryDirectory directory = new();
+        var source = TestConfiguration.ValidYaml;
+        var scannerStart = source.IndexOf("scanner:", StringComparison.Ordinal);
+        var stateStart = source.IndexOf("state:", scannerStart, StringComparison.Ordinal);
+        var loggingStart = source.IndexOf("logging:", StringComparison.Ordinal);
+        var yaml = source[..scannerStart]
+            + source[stateStart..loggingStart];
+        var configurationPath = Path.Combine(directory.Path, "omitted-sections.yaml");
+        await File.WriteAllTextAsync(configurationPath, yaml, TestContext.CancellationToken);
+
+        var loaded = await ConfigurationLoader.LoadAsync(
+            configurationPath,
+            CreateEnvironment(directory.Path),
+            TestContext.CancellationToken);
+
+        Assert.AreEqual("incremental", loaded.Configuration.Scanner.Mode);
+        Assert.AreEqual(100, loaded.Configuration.Scanner.BatchSize);
+        Assert.IsTrue(loaded.Configuration.Processing.DryRun);
+        Assert.AreEqual("Information", loaded.Configuration.Logging.Level);
     }
 
     [TestMethod]

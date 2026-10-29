@@ -36,7 +36,7 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
-    public async Task Validate_rejects_null_dry_run_setting()
+    public async Task Load_rejects_explicit_null_dry_run_setting()
     {
         using TemporaryDirectory directory = new();
         var yaml = TestConfiguration.ValidYaml.Replace("dryRun: true", "dryRun: null", StringComparison.Ordinal);
@@ -45,7 +45,7 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        Assert.Contains("processing.dryRun cannot be null.", exception.Message);
+        Assert.Contains("Strict nullability enforcement", exception.Message);
     }
 
     [TestMethod]
@@ -97,7 +97,7 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
-    public async Task Validate_rejects_missing_immich_section()
+    public async Task Load_rejects_missing_required_immich_section()
     {
         using TemporaryDirectory directory = new();
         var source = TestConfiguration.ValidYaml;
@@ -109,11 +109,11 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        Assert.Contains("The 'immich' section is required.", exception.Message);
+        Assert.Contains("'immich'", exception.Message);
     }
 
     [TestMethod]
-    public async Task Validate_rejects_missing_categories_section()
+    public async Task Load_rejects_missing_required_categories_section()
     {
         using TemporaryDirectory directory = new();
         var source = TestConfiguration.ValidYaml;
@@ -125,11 +125,63 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        Assert.Contains("At least one category is required.", exception.Message);
+        Assert.Contains("'categories'", exception.Message);
     }
 
     [TestMethod]
-    public async Task Validate_rejects_missing_category_sections()
+    public async Task Load_rejects_missing_required_state_section()
+    {
+        using TemporaryDirectory directory = new();
+        var source = TestConfiguration.ValidYaml;
+        var stateStart = source.IndexOf("state:", StringComparison.Ordinal);
+        var categoriesStart = source.IndexOf("categories:", stateStart, StringComparison.Ordinal);
+        var yaml = source[..stateStart] + source[categoriesStart..];
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
+
+        Assert.Contains("'state'", exception.Message);
+    }
+
+    [TestMethod]
+    public async Task Load_rejects_missing_required_immich_properties()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml
+            .Replace("  url: \"http://localhost:2283\"", string.Empty, StringComparison.Ordinal)
+            .Replace("  apiKeyEnv: IMMICH_API_KEY", string.Empty, StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
+
+        Assert.Contains("Strict nullability enforcement", exception.Message);
+    }
+
+    [TestMethod]
+    public async Task Load_rejects_missing_required_category_members()
+    {
+        using TemporaryDirectory directory = new();
+        var source = TestConfiguration.ValidYaml;
+        var nameStart = source.IndexOf("  - name: receipts", StringComparison.Ordinal);
+        var actionsStart = source.IndexOf("    actions:", nameStart, StringComparison.Ordinal);
+        var actionsPrefixLength = "    actions:".Length;
+        var yaml = source[..nameStart]
+            + "  - actions:"
+            + source[(actionsStart + actionsPrefixLength)..];
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
+
+        Assert.Contains("name", exception.Message);
+        Assert.Contains("search", exception.Message);
+        Assert.Contains("match", exception.Message);
+    }
+
+    [TestMethod]
+    public async Task Load_rejects_null_non_nullable_category_members()
     {
         using TemporaryDirectory directory = new();
         var source = TestConfiguration.ValidYaml;
@@ -146,9 +198,7 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        Assert.Contains("categories[0].search is required.", exception.Message);
-        Assert.Contains("categories[0].match is required.", exception.Message);
-        Assert.Contains("categories[0].actions cannot be null.", exception.Message);
+        Assert.Contains("Strict nullability enforcement", exception.Message);
     }
 
     [TestMethod]

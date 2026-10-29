@@ -225,6 +225,7 @@ public sealed class ClassificationEngineTests
         {
             Name = name,
             Enabled = true,
+            Search = new(),
             Match = match,
             Actions = new AppConfiguration.ActionOptions
             {

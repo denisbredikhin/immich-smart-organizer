@@ -28,7 +28,8 @@ public sealed class CandidateDiscoveryTests
             {
                 Contextual = ["receipt"],
                 Ocr = ["vat"]
-            }
+            },
+            Match = new()
         };
 
         var result = await discovery.DiscoverAsync([category], batchSize: 3, maxAssets: 10, cancellationToken: TestContext.CancellationToken);
@@ -62,7 +63,8 @@ public sealed class CandidateDiscoveryTests
             Search = new AppConfiguration.SearchOptions
             {
                 Ocr = ["invoice", "receipt"]
-            }
+            },
+            Match = new()
         };
 
         var result = await discovery.DiscoverAsync([category], batchSize: 10, maxAssets: 1, cancellationToken: TestContext.CancellationToken);
@@ -83,7 +85,8 @@ public sealed class CandidateDiscoveryTests
         AppConfiguration.CategoryOptions category = new()
         {
             Name = "tickets",
-            Search = new AppConfiguration.SearchOptions { Contextual = ["boarding pass"] }
+            Search = new AppConfiguration.SearchOptions { Contextual = ["boarding pass"] },
+            Match = new()
         };
 
         var result = await discovery.DiscoverAsync([category], batchSize: 2, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
@@ -107,7 +110,8 @@ public sealed class CandidateDiscoveryTests
         AppConfiguration.CategoryOptions category = new()
         {
             Name = "documents",
-            Search = new AppConfiguration.SearchOptions { Ocr = ["invoice"] }
+            Search = new AppConfiguration.SearchOptions { Ocr = ["invoice"] },
+            Match = new()
         };
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
@@ -133,7 +137,8 @@ public sealed class CandidateDiscoveryTests
         AppConfiguration.CategoryOptions category = new()
         {
             Name = "documents",
-            Search = new AppConfiguration.SearchOptions { Ocr = ["broken", "receipt"] }
+            Search = new AppConfiguration.SearchOptions { Ocr = ["broken", "receipt"] },
+            Match = new()
         };
 
         var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
@@ -160,7 +165,8 @@ public sealed class CandidateDiscoveryTests
             {
                 Contextual = ["receipt"],
                 Ocr = ["invoice"]
-            }
+            },
+            Match = new()
         };
 
         var result = await discovery.DiscoverAsync([category], batchSize: 5, maxAssets: 20, cancellationToken: TestContext.CancellationToken);

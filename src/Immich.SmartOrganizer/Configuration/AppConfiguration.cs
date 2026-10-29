@@ -2,28 +2,28 @@ namespace Immich.SmartOrganizer.Configuration;
 
 internal sealed class AppConfiguration
 {
-    public ImmichOptions? Immich { get; set; }
+    public required ImmichOptions Immich { get; set; }
 
-    public ScannerOptions? Scanner { get; set; } = new();
+    public ScannerOptions Scanner { get; set; } = new();
 
-    public ProcessingOptions? Processing { get; set; } = new();
+    public ProcessingOptions Processing { get; set; } = new();
 
-    public StateOptions? State { get; set; } = new();
+    public required StateOptions State { get; set; }
 
-    public List<CategoryOptions>? Categories { get; set; } = [];
+    public required List<CategoryOptions> Categories { get; set; }
 
-    public LoggingOptions? Logging { get; set; } = new();
+    public LoggingOptions Logging { get; set; } = new();
 
     internal sealed class ImmichOptions
     {
-        public string? Url { get; set; }
+        public required string Url { get; set; }
 
-        public string? ApiKeyEnv { get; set; }
+        public required string ApiKeyEnv { get; set; }
     }
 
     internal sealed class ScannerOptions
     {
-        public string? Mode { get; set; } = "incremental";
+        public string Mode { get; set; } = "incremental";
 
         public int BatchSize { get; set; } = 100;
 
@@ -48,43 +48,43 @@ internal sealed class AppConfiguration
 
         public int MaxErrorsPerRun { get; set; } = 20;
 
-        public string? AmbiguousAssetPolicy { get; set; } = "review";
+        public string AmbiguousAssetPolicy { get; set; } = "review";
     }
 
     internal sealed class StateOptions
     {
-        public string? Path { get; set; } = "./state.db";
+        public string Path { get; set; } = "./state.db";
     }
 
     internal sealed class CategoryOptions
     {
-        public string? Name { get; set; }
+        public required string Name { get; set; }
 
         public bool Enabled { get; set; } = true;
 
-        public SearchOptions? Search { get; set; }
+        public required SearchOptions Search { get; set; }
 
-        public MatchOptions? Match { get; set; }
+        public required MatchOptions Match { get; set; }
 
-        public ActionOptions? Actions { get; set; } = new();
+        public ActionOptions Actions { get; set; } = new();
     }
 
     internal sealed class SearchOptions
     {
-        public List<string>? Contextual { get; set; } = [];
+        public List<string> Contextual { get; set; } = [];
 
-        public List<string>? Ocr { get; set; } = [];
+        public List<string> Ocr { get; set; } = [];
     }
 
     internal sealed class MatchOptions
     {
-        public List<MatchCondition>? All { get; set; } = [];
+        public List<MatchCondition> All { get; set; } = [];
 
-        public List<MatchCondition>? Any { get; set; } = [];
+        public List<MatchCondition> Any { get; set; } = [];
 
         public MatchCondition? Not { get; set; }
 
-        public List<MatchCondition>? Exclude { get; set; } = [];
+        public List<MatchCondition> Exclude { get; set; } = [];
     }
 
     internal sealed class MatchCondition
@@ -107,8 +107,8 @@ internal sealed class AppConfiguration
 
     internal sealed class LoggingOptions
     {
-        public string? Level { get; set; } = "Information";
+        public string Level { get; set; } = "Information";
 
-        public string? Format { get; set; } = "text";
+        public string Format { get; set; } = "text";
     }
 }

@@ -26,24 +26,17 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
         List<SearchPlan> plans = [];
         foreach (var category in categories)
         {
-            if (!category.Enabled || category.Search is null)
+            if (!category.Enabled)
             {
                 continue;
             }
 
-            if (category.Search.Contextual is not null)
-            {
-                plans.AddRange(category.Search.Contextual
-                    .Where(static query => !string.IsNullOrWhiteSpace(query))
-                    .Select(query => new SearchPlan(category.Name ?? string.Empty, SearchEvidenceKind.Contextual, query)));
-            }
-
-            if (category.Search.Ocr is not null)
-            {
-                plans.AddRange(category.Search.Ocr
-                    .Where(static query => !string.IsNullOrWhiteSpace(query))
-                    .Select(query => new SearchPlan(category.Name ?? string.Empty, SearchEvidenceKind.Ocr, query)));
-            }
+            plans.AddRange(category.Search.Contextual
+                .Where(static query => !string.IsNullOrWhiteSpace(query))
+                .Select(query => new SearchPlan(category.Name, SearchEvidenceKind.Contextual, query)));
+            plans.AddRange(category.Search.Ocr
+                .Where(static query => !string.IsNullOrWhiteSpace(query))
+                .Select(query => new SearchPlan(category.Name, SearchEvidenceKind.Ocr, query)));
         }
 
         CandidateAccumulator candidates = new(maxAssets);

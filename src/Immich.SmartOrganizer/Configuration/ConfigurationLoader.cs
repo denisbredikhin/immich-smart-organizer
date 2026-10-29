@@ -12,6 +12,8 @@ internal static class ConfigurationLoader
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(CamelCaseNamingConvention.Instance)
         .WithDuplicateKeyChecking()
+        .WithEnforceNullability()
+        .WithEnforceRequiredMembers()
         .Build();
 
     public static async Task<LoadedConfiguration> LoadAsync(
@@ -75,10 +77,7 @@ internal static class ConfigurationLoader
         }
 
         var selectedPath = explicitPath;
-        if (selectedPath is null)
-        {
-            selectedPath = environment.GetEnvironmentVariable(ConfigurationEnvironmentVariable);
-        }
+        selectedPath ??= environment.GetEnvironmentVariable(ConfigurationEnvironmentVariable);
 
         if (string.IsNullOrWhiteSpace(selectedPath))
         {

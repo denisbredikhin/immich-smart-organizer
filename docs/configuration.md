@@ -35,12 +35,14 @@ Use the minimum Immich permissions required for the operations you enable. See [
 
 ## Schema and defaults
 
-Unknown properties are errors rather than silently ignored values. The root must include `immich` and at least one category. The safe example also includes the other sections explicitly.
+Unknown properties are errors rather than silently ignored values. YamlDotNet rejects missing required members and explicit null values while loading the file. The required root sections are `immich`, `state`, and `categories`; each category requires `name`, `search`, and `match`. Semantic validation then checks values, ranges, and cross-field rules. The optional `scanner`, `processing`, and `logging` sections use their defaults when omitted. The safe example includes all sections explicitly.
 
 | Property | Type | Default | Validation / meaning |
 |---|---|---|---|
+| `immich` | section | required | Immich connection settings. |
 | `immich.url` | absolute URL | required | Must use HTTP or HTTPS and must not contain embedded user information. |
 | `immich.apiKeyEnv` | environment variable name | required | Must be a valid variable name whose value is set and non-empty. |
+| `scanner` | section | defaults | Optional; omitted values use the defaults below. |
 | `scanner.mode` | `incremental` or `full` | `incremental` | `full` means candidate re-evaluation, not guaranteed exhaustive library enumeration. |
 | `scanner.batchSize` | integer | `100` | `1`–`500`. |
 | `scanner.concurrency` | integer | `2` | `1`–`8`. |
@@ -48,16 +50,21 @@ Unknown properties are errors rather than silently ignored values. The root must
 | `scanner.includeExternalLibraries` | boolean | `true` | External-library coverage is not yet verified; see API compatibility notes. |
 | `scanner.includeVideos` | boolean | `false` | Whether videos may be included in discovery. |
 | `scanner.lookbackDays` | integer | `7` | `1`–`3650`; it is not a safe standalone incremental cursor. |
+| `processing` | section | defaults | Optional; omitted values use the defaults below. |
 | `processing.dryRun` | boolean | `true` | Plans are not completed actions. Dry-run must send no mutation requests. |
 | `processing.maxAssetsPerRun` | integer | `1000` | `1`–`100000`. |
 | `processing.maxArchiveActionsPerRun` | integer | `25` | `0`–`1000`; `0` disables archive actions. |
 | `processing.maxErrorsPerRun` | integer | `20` | `1`–`1000`. |
 | `processing.ambiguousAssetPolicy` | `review` or `skip` | `review` | Ambiguous results must not be assigned arbitrarily. |
+| `state` | section | required | State database settings. |
 | `state.path` | file path | `./state.db` | Relative paths are based on the configuration file's directory. |
 | `categories` | non-empty list | required | Names must be unique, case-insensitively. Each category needs a search query and a match condition. |
+| `categories[].name` | string | required | Unique category name. |
 | `categories[].enabled` | boolean | `true` | Disabled categories are ignored by classification. |
+| `categories[].search` | section | required | Configured discovery queries for this category. |
 | `categories[].search.contextual` | list of strings | empty | Contextual/CLIP search queries; these are not calibrated confidence values. |
 | `categories[].search.ocr` | list of strings | empty | OCR search queries; exact matching semantics are determined by Immich. |
+| `categories[].match` | section | required | Rule conditions for this category. |
 | `categories[].match.all` | list of conditions | empty | All listed conditions must match. Condition terms must also be configured in the corresponding search list. |
 | `categories[].match.any` | list of conditions | empty | At least one listed condition must match when the list is non-empty. |
 | `categories[].match.not` | condition | unset | The category condition is satisfied when this condition does not match. |
@@ -65,6 +72,7 @@ Unknown properties are errors rather than silently ignored values. The root must
 | `categories[].actions.album` | string | unset | Optional album display name. |
 | `categories[].actions.tag` | string | unset | Optional tag name. A slash is not interpreted as a filesystem path. |
 | `categories[].actions.archive` | boolean | `false` | Archive action is opt-in and subject to the per-run limit; this phase plans but does not execute it. |
+| `logging` | section | defaults | Optional; omitted values use the defaults below. |
 | `logging.level` | `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`, or `None` | `Information` | Reserved for CLI logging behavior. |
 | `logging.format` | `text` | `text` | JSON logging is not currently supported. |
 

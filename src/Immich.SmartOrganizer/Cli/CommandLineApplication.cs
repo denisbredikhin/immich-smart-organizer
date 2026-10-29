@@ -180,7 +180,7 @@ internal static class CommandLineApplication
 
         var loaded = await ConfigurationLoader.LoadAsync(options.ConfigurationPath, environment, cancellationToken);
         if (options.Category is not null
-            && !loaded.Configuration.Categories!.Any(category =>
+            && !loaded.Configuration.Categories.Any(category =>
                 string.Equals(category.Name, options.Category, StringComparison.OrdinalIgnoreCase)))
         {
             error.WriteLine($"Error: category '{options.Category}' is not configured.");
@@ -188,24 +188,23 @@ internal static class CommandLineApplication
         }
 
         var configuration = loaded.Configuration;
-        var selectedCategories = configuration.Categories!;
+        var selectedCategories = configuration.Categories;
         if (options.Category is not null)
         {
-            selectedCategories = selectedCategories
+            selectedCategories = [.. selectedCategories
                 .Where(category => string.Equals(
                     category.Name,
                     options.Category,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                    StringComparison.OrdinalIgnoreCase))];
         }
 
-        var apiKey = environment.GetEnvironmentVariable(configuration.Immich!.ApiKeyEnv!)!;
+        var apiKey = environment.GetEnvironmentVariable(configuration.Immich.ApiKeyEnv)!;
         using var httpClient = httpClientFactory?.Invoke() ?? ImmichApiClient.CreateDefaultHttpClient();
-        ImmichApiClient client = new(httpClient, configuration.Immich.Url!, apiKey);
+        ImmichApiClient client = new(httpClient, configuration.Immich.Url, apiKey);
 
         var version = await client.GetServerVersionAsync(cancellationToken);
-        var scanner = configuration.Scanner!;
-        var processing = configuration.Processing!;
+        var scanner = configuration.Scanner;
+        var processing = configuration.Processing;
         var maxAssets = Math.Min(
             processing.MaxAssetsPerRun,
             options.Limit ?? int.MaxValue);
@@ -220,7 +219,7 @@ internal static class CommandLineApplication
         var classifications = ClassificationEngine.Classify(
             result.Assets,
             selectedCategories,
-            processing.AmbiguousAssetPolicy!);
+            processing.AmbiguousAssetPolicy);
         var actionPlan = DryRunActionPlanner.Create(
             classifications,
             processing.MaxArchiveActionsPerRun);
