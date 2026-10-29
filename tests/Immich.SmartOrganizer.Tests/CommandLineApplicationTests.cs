@@ -1,5 +1,7 @@
 using System.Net;
 using Immich.SmartOrganizer.Cli;
+using Immich.SmartOrganizer.Immich;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer.Tests;
 
@@ -270,6 +272,9 @@ public sealed class CommandLineApplicationTests
             };
             return Task.FromResult(response);
         });
+        ServiceCollection services = new();
+        services.AddImmichHttpClient(() => handler);
+        using ServiceProvider serviceProvider = services.BuildServiceProvider();
 
         var result = await ExecuteAsync(
             directory.Path,
@@ -426,12 +431,16 @@ public sealed class CommandLineApplicationTests
             };
             return Task.FromResult(response);
         });
+        ServiceCollection services = new();
+        services.AddImmichHttpClient(() => handler);
+        using ServiceProvider serviceProvider = services.BuildServiceProvider();
 
         var result = await ExecuteAsync(
             directory.Path,
             ["scan", "--config", "scan.yaml"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => new HttpClient(handler));
+            () => serviceProvider.GetRequiredService<IHttpClientFactory>()
+                .CreateClient(ImmichHttpClientRegistration.ClientName));
 
         Assert.AreEqual(5, result.ExitCode);
         Assert.Contains("Candidates discovered: 1", result.Output);

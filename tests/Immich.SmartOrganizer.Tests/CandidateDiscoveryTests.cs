@@ -3,6 +3,7 @@ using System.Text.Json;
 using Immich.SmartOrganizer.Configuration;
 using Immich.SmartOrganizer.Immich;
 using Immich.SmartOrganizer.Search;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer.Tests;
 
@@ -132,7 +133,9 @@ public sealed class CandidateDiscoveryTests
                 ? Response("temporarily unavailable", HttpStatusCode.ServiceUnavailable)
                 : Response("""{"count":1,"items":[{"id":"asset-2"}],"nextCursor":null,"nextPage":null}"""));
         });
-        using HttpClient httpClient = new(handler);
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
         CandidateDiscovery discovery = new(CreateClient(httpClient));
         AppConfiguration.CategoryOptions category = new()
         {
@@ -178,6 +181,13 @@ public sealed class CandidateDiscoveryTests
 
     private static ImmichApiClient CreateClient(HttpClient httpClient) =>
         new(httpClient, "http://localhost:2283", "test-api-key");
+
+    private static ServiceProvider CreateResilienceServiceProvider(HttpMessageHandler handler)
+    {
+        ServiceCollection services = new();
+        services.AddImmichHttpClient(() => handler);
+        return services.BuildServiceProvider();
+    }
 
     private static HttpResponseMessage Response(
         string assetsJson,

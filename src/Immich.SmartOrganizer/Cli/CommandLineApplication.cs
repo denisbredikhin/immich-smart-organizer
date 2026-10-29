@@ -5,6 +5,7 @@ using Immich.SmartOrganizer.Classification;
 using Immich.SmartOrganizer.Configuration;
 using Immich.SmartOrganizer.Immich;
 using Immich.SmartOrganizer.Search;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer.Cli;
 
@@ -199,7 +200,12 @@ internal static class CommandLineApplication
         }
 
         var apiKey = environment.GetEnvironmentVariable(configuration.Immich.ApiKeyEnv)!;
-        using var httpClient = httpClientFactory?.Invoke() ?? ImmichApiClient.CreateDefaultHttpClient();
+        using ServiceProvider? serviceProvider = httpClientFactory is null
+            ? CreateServiceProvider()
+            : null;
+        using var httpClient = httpClientFactory?.Invoke()
+            ?? serviceProvider!.GetRequiredService<IHttpClientFactory>()
+                .CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = new(httpClient, configuration.Immich.Url, apiKey);
 
         var version = await client.GetServerVersionAsync(cancellationToken);
@@ -267,6 +273,13 @@ internal static class CommandLineApplication
         }
 
         return result.IsPartial ? PartialScan : Success;
+    }
+
+    private static ServiceProvider CreateServiceProvider()
+    {
+        ServiceCollection services = new();
+        services.AddImmichHttpClient();
+        return services.BuildServiceProvider();
     }
 
     private static void WriteClassificationDetails(
