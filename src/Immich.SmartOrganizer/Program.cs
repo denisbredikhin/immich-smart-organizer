@@ -8,11 +8,11 @@ internal static class Program
     public static async Task<int> Main(string[] args)
     {
         using CancellationTokenSource cancellationSource = new();
-        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        void cancelHandler(object? _, ConsoleCancelEventArgs eventArgs)
         {
             eventArgs.Cancel = true;
             cancellationSource.Cancel();
-        };
+        }
         Console.CancelKeyPress += cancelHandler;
 
         try

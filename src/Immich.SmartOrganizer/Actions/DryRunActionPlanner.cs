@@ -54,7 +54,7 @@ internal static class DryRunActionPlanner
 
             actions.Add(new PlannedAssetActions(
                 classification.Asset.Id,
-                category.Name!,
+                category.Name,
                 category.Actions.Album,
                 category.Actions.Tag,
                 archive,

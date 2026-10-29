@@ -77,10 +77,7 @@ internal static class ConfigurationLoader
         }
 
         var selectedPath = explicitPath;
-        if (selectedPath is null)
-        {
-            selectedPath = environment.GetEnvironmentVariable(ConfigurationEnvironmentVariable);
-        }
+        selectedPath ??= environment.GetEnvironmentVariable(ConfigurationEnvironmentVariable);
 
         if (string.IsNullOrWhiteSpace(selectedPath))
         {

@@ -10,20 +10,18 @@ internal static class ConfigurationValidator
         ICommandEnvironment environment)
     {
         List<string> errors = [];
-        string? stateDatabasePath = null;
 
         ValidateImmich(configuration.Immich, environment, errors);
         ValidateScanner(configuration.Scanner, errors);
         ValidateProcessing(configuration.Processing, errors);
         ValidateCategories(configuration.Categories, errors);
         ValidateLogging(configuration.Logging, errors);
-
-        stateDatabasePath = ValidateStatePath(
+        ValidateStatePath(
             configuration.State.Path,
             configurationPath,
             errors);
 
-        return new ConfigurationValidationResult(errors, stateDatabasePath);
+        return new ConfigurationValidationResult(errors, null);
     }
 
     private static void ValidateImmich(

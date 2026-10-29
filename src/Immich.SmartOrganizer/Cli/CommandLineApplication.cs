@@ -191,12 +191,11 @@ internal static class CommandLineApplication
         var selectedCategories = configuration.Categories;
         if (options.Category is not null)
         {
-            selectedCategories = selectedCategories
+            selectedCategories = [.. selectedCategories
                 .Where(category => string.Equals(
                     category.Name,
                     options.Category,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                    StringComparison.OrdinalIgnoreCase))];
         }
 
         var apiKey = environment.GetEnvironmentVariable(configuration.Immich.ApiKeyEnv)!;
