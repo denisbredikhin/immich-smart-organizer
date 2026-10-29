@@ -16,12 +16,12 @@ internal static class ConfigurationValidator
         ValidateProcessing(configuration.Processing, errors);
         ValidateCategories(configuration.Categories, errors);
         ValidateLogging(configuration.Logging, errors);
-        ValidateStatePath(
+        var stateDatabasePath = ValidateStatePath(
             configuration.State.Path,
             configurationPath,
             errors);
 
-        return new ConfigurationValidationResult(errors, null);
+        return new ConfigurationValidationResult(errors, stateDatabasePath);
     }
 
     private static void ValidateImmich(
