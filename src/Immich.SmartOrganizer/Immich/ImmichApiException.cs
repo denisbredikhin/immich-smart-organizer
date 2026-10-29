@@ -8,16 +8,10 @@ internal enum ImmichApiFailureKind
     Transient
 }
 
-internal sealed class ImmichApiException : Exception
+internal sealed class ImmichApiException(
+    ImmichApiFailureKind kind,
+    string message,
+    Exception? innerException = null) : Exception(message, innerException)
 {
-    public ImmichApiException(
-        ImmichApiFailureKind kind,
-        string message,
-        Exception? innerException = null)
-        : base(message, innerException)
-    {
-        Kind = kind;
-    }
-
-    public ImmichApiFailureKind Kind { get; }
+    public ImmichApiFailureKind Kind { get; } = kind;
 }
