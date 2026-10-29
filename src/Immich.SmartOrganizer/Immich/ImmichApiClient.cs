@@ -1,9 +1,10 @@
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 
 namespace Immich.SmartOrganizer.Immich;
 
@@ -11,9 +12,6 @@ internal sealed class ImmichApiClient
 {
     private const int MinimumPageSize = 1;
     private const int MaximumPageSize = 500;
-    private const int MaximumRetries = 2;
-    private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromMilliseconds(200);
-    private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(2);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
@@ -39,12 +37,6 @@ internal sealed class ImmichApiClient
         _apiKey = apiKey;
         _apiBaseAddress = CreateApiBaseAddress(serverUri);
     }
-
-    public static HttpClient CreateDefaultHttpClient() =>
-        new(new HttpClientHandler { AllowAutoRedirect = false })
-        {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
 
     public async Task<ImmichServerVersion> GetServerVersionAsync(
         CancellationToken cancellationToken = default)
@@ -156,87 +148,72 @@ internal sealed class ImmichApiClient
         CancellationToken cancellationToken)
     {
         var requestUri = new Uri(_apiBaseAddress, endpoint);
-        for (var attempt = 0; ; attempt++)
+        using HttpRequestMessage request = new(method, requestUri);
+        if (authenticated)
         {
-            using HttpRequestMessage request = new(method, requestUri);
-            if (authenticated)
+            request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+        }
+
+        if (requestBody is not null)
+        {
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(requestBody, JsonOptions),
+                Encoding.UTF8,
+                "application/json");
+        }
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new ImmichApiException(
+                ImmichApiFailureKind.Connectivity,
+                $"Could not connect to Immich while requesting {endpoint}.",
+                exception);
+        }
+        catch (TimeoutRejectedException exception)
+        {
+            throw new ImmichApiException(
+                ImmichApiFailureKind.Connectivity,
+                $"The Immich request to {endpoint} timed out.",
+                exception);
+        }
+        catch (BrokenCircuitException exception)
+        {
+            throw new ImmichApiException(
+                ImmichApiFailureKind.Transient,
+                $"Immich is temporarily unavailable while requesting {endpoint}.",
+                exception);
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
             {
-                request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+                throw CreateStatusException(endpoint, response.StatusCode);
             }
 
-            if (requestBody is not null)
-            {
-                request.Content = new StringContent(
-                    JsonSerializer.Serialize(requestBody, JsonOptions),
-                    Encoding.UTF8,
-                    "application/json");
-            }
-
-            HttpResponseMessage response;
             try
             {
-                response = await _httpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseContentRead,
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var result = await JsonSerializer.DeserializeAsync<TResponse>(
+                    stream,
+                    JsonOptions,
                     cancellationToken);
+                return result ?? throw InvalidResponse(method, endpoint);
             }
-            catch (HttpRequestException) when (attempt < MaximumRetries)
-            {
-                await Task.Delay(GetRetryDelay(attempt, retryAfter: null), cancellationToken);
-                continue;
-            }
-            catch (OperationCanceledException)
-                when (!cancellationToken.IsCancellationRequested && attempt < MaximumRetries)
-            {
-                await Task.Delay(GetRetryDelay(attempt, retryAfter: null), cancellationToken);
-                continue;
-            }
-            catch (HttpRequestException exception)
+            catch (JsonException exception)
             {
                 throw new ImmichApiException(
-                    ImmichApiFailureKind.Connectivity,
-                    $"Could not connect to Immich while requesting {endpoint}.",
+                    ImmichApiFailureKind.IncompatibleApi,
+                    $"Immich returned an invalid response for {method} {endpoint}.",
                     exception);
-            }
-            catch (OperationCanceledException exception)
-                when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new ImmichApiException(
-                    ImmichApiFailureKind.Connectivity,
-                    $"The Immich request to {endpoint} timed out.",
-                    exception);
-            }
-
-            using (response)
-            {
-                if (IsRetryable(response.StatusCode) && attempt < MaximumRetries)
-                {
-                    var retryDelay = GetRetryDelay(attempt, response.Headers.RetryAfter);
-                    await Task.Delay(retryDelay, cancellationToken);
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw CreateStatusException(endpoint, response.StatusCode);
-                }
-
-                try
-                {
-                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                    var result = await JsonSerializer.DeserializeAsync<TResponse>(
-                        stream,
-                        JsonOptions,
-                        cancellationToken);
-                    return result ?? throw InvalidResponse(method, endpoint);
-                }
-                catch (JsonException exception)
-                {
-                    throw new ImmichApiException(
-                        ImmichApiFailureKind.IncompatibleApi,
-                        $"Immich returned an invalid response for {method} {endpoint}.",
-                        exception);
-                }
             }
         }
     }
@@ -311,21 +288,6 @@ internal sealed class ImmichApiClient
         statusCode == HttpStatusCode.RequestTimeout
         || statusCode == (HttpStatusCode)429
         || (int)statusCode >= 500;
-
-    private static TimeSpan GetRetryDelay(int attempt, RetryConditionHeaderValue? retryAfter)
-    {
-        TimeSpan delay = retryAfter?.Delta
-            ?? (retryAfter?.Date is { } retryDate
-                ? retryDate - DateTimeOffset.UtcNow
-                : TimeSpan.FromMilliseconds(RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt)));
-
-        if (delay < TimeSpan.Zero)
-        {
-            return TimeSpan.Zero;
-        }
-
-        return delay > MaximumRetryDelay ? MaximumRetryDelay : delay;
-    }
 
     private static void ValidatePageSize(int size)
     {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Immich.SmartOrganizer.Immich;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer.Tests;
 
@@ -102,11 +103,52 @@ public sealed class ImmichApiClientTests
                 """{"assets":{"count":0,"items":[],"nextCursor":null,"nextPage":null}}""",
                 statusCode));
         });
-        using HttpClient httpClient = new(handler);
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = CreateClient(httpClient);
 
         await client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken);
 
+        Assert.HasCount(3, handler.Requests);
+    }
+
+    [TestMethod]
+    public async Task SearchMetadata_retries_network_failures()
+    {
+        var attempt = 0;
+        StubHttpMessageHandler handler = new((_, _) =>
+        {
+            attempt++;
+            return attempt == 1
+                ? Task.FromException<HttpResponseMessage>(new HttpRequestException("temporary network failure"))
+                : Task.FromResult(StubHttpMessageHandler.Json(
+                    """{"assets":{"count":0,"items":[],"nextCursor":null,"nextPage":null}}"""));
+        });
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
+        ImmichApiClient client = CreateClient(httpClient);
+
+        await client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken);
+
+        Assert.HasCount(2, handler.Requests);
+    }
+
+    [TestMethod]
+    public async Task SearchMetadata_maps_exhausted_network_failures()
+    {
+        StubHttpMessageHandler handler = new((_, _) =>
+            Task.FromException<HttpResponseMessage>(new HttpRequestException("network unavailable")));
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
+        ImmichApiClient client = CreateClient(httpClient);
+
+        var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
+            () => client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken));
+
+        Assert.AreEqual(ImmichApiFailureKind.Connectivity, exception.Kind);
         Assert.HasCount(3, handler.Requests);
     }
 
@@ -123,7 +165,9 @@ public sealed class ImmichApiClientTests
                     """{"assets":{"count":0,"items":[],"nextCursor":null,"nextPage":null}}""");
             return Task.FromResult(response);
         });
-        using HttpClient httpClient = new(handler);
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = CreateClient(httpClient);
 
         var page = await client.SearchMetadataAsync("invoice", 10, cancellationToken: TestContext.CancellationToken);
@@ -137,7 +181,9 @@ public sealed class ImmichApiClientTests
     {
         StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
             StubHttpMessageHandler.Json("the server must not echo credentials", HttpStatusCode.Forbidden)));
-        using HttpClient httpClient = new(handler);
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
@@ -153,7 +199,9 @@ public sealed class ImmichApiClientTests
     {
         StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
             StubHttpMessageHandler.Json("unavailable", HttpStatusCode.ServiceUnavailable)));
-        using HttpClient httpClient = new(handler);
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = CreateClient(httpClient);
 
         var exception = await Assert.ThrowsExactlyAsync<ImmichApiException>(
@@ -240,6 +288,13 @@ public sealed class ImmichApiClientTests
 
     private static ImmichApiClient CreateClient(HttpClient httpClient) =>
         new(httpClient, "https://photos.example", ApiKey);
+
+    private static ServiceProvider CreateResilienceServiceProvider(HttpMessageHandler handler)
+    {
+        ServiceCollection services = new();
+        services.AddImmichHttpClient(() => handler);
+        return services.BuildServiceProvider();
+    }
 
     private sealed class FailingHttpContent : HttpContent
     {
