@@ -149,7 +149,105 @@ internal static class ConfigurationValidator
 
             ValidateSearch(category.Search, prefix, errors);
             ValidateMatch(category.Match, prefix, errors);
+            if (category.Enabled)
+            {
+                ValidateMatchQueries(category.Search, category.Match, prefix, errors);
+            }
+
             ValidateActions(category.Actions, prefix, errors);
+        }
+    }
+
+    private static void ValidateMatchQueries(
+        AppConfiguration.SearchOptions? search,
+        AppConfiguration.MatchOptions? match,
+        string prefix,
+        List<string> errors)
+    {
+        if (search is null || match is null)
+        {
+            return;
+        }
+
+        var contextualQueries = search.Contextual ?? [];
+        var ocrQueries = search.Ocr ?? [];
+        ValidateConditionQueries(match.All, $"{prefix}.match.all", contextualQueries, ocrQueries, errors);
+        ValidateConditionQueries(match.Any, $"{prefix}.match.any", contextualQueries, ocrQueries, errors);
+        ValidateConditionQueries(match.Exclude, $"{prefix}.match.exclude", contextualQueries, ocrQueries, errors);
+        if (match.Not is not null)
+        {
+            ValidateConditionQueries(
+                [match.Not],
+                $"{prefix}.match.not",
+                contextualQueries,
+                ocrQueries,
+                errors);
+        }
+    }
+
+    private static void ValidateConditionQueries(
+        List<AppConfiguration.MatchCondition>? conditions,
+        string path,
+        IReadOnlyList<string> contextualQueries,
+        IReadOnlyList<string> ocrQueries,
+        List<string> errors)
+    {
+        if (conditions is null)
+        {
+            return;
+        }
+
+        for (var index = 0; index < conditions.Count; index++)
+        {
+            var condition = conditions[index];
+            if (condition is null)
+            {
+                continue;
+            }
+
+            var conditionPath = $"{path}[{index}]";
+            ValidateConditionQueryTerms(
+                condition.ContextualAny,
+                $"{conditionPath}.contextualAny",
+                "search.contextual",
+                contextualQueries,
+                errors);
+            ValidateConditionQueryTerms(
+                condition.OcrAny,
+                $"{conditionPath}.ocrAny",
+                "search.ocr",
+                ocrQueries,
+                errors);
+            ValidateConditionQueryTerms(
+                condition.OcrAll,
+                $"{conditionPath}.ocrAll",
+                "search.ocr",
+                ocrQueries,
+                errors);
+        }
+    }
+
+    private static void ValidateConditionQueryTerms(
+        IReadOnlyList<string>? terms,
+        string conditionPath,
+        string searchPath,
+        IReadOnlyList<string> searchQueries,
+        List<string> errors)
+    {
+        if (terms is null)
+        {
+            return;
+        }
+
+        foreach (var term in terms)
+        {
+            if (!string.IsNullOrWhiteSpace(term)
+                && !searchQueries.Contains(term, StringComparer.OrdinalIgnoreCase))
+            {
+                errors.Add(
+                    $"{conditionPath} term '{term}' must also appear in {searchPath}; "
+                    + "classification uses exact search-query evidence.");
+            }
         }
     }
 
@@ -191,13 +289,12 @@ internal static class ConfigurationValidator
 
         if (match.Not is not null)
         {
-            hasCondition = true;
             ValidateCondition(match.Not, $"{prefix}.match.not", errors);
         }
 
         if (!hasCondition)
         {
-            errors.Add($"{prefix}.match must contain at least one condition.");
+            errors.Add($"{prefix}.match must contain at least one positive condition in 'all' or 'any'.");
         }
     }
 

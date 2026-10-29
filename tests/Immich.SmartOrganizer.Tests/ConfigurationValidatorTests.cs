@@ -326,6 +326,28 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
+    public async Task Validate_rejects_match_terms_without_corresponding_search_queries()
+    {
+        using TemporaryDirectory directory = new();
+        var source = TestConfiguration.ScanYaml;
+        var matchMarker = source.IndexOf("match:", StringComparison.Ordinal);
+        var yaml = source[..matchMarker]
+            + source[matchMarker..].Replace("- invoice", "- missing-term", StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(
+                configurationPath,
+                CreateEnvironment(directory.Path),
+                TestContext.CancellationToken));
+
+        Assert.Contains(
+            "match.any[0].ocrAny term 'missing-term' must also appear in search.ocr",
+            exception.Message);
+        Assert.Contains("classification uses exact search-query evidence", exception.Message);
+    }
+
+    [TestMethod]
     public async Task Validate_rejects_match_conditions_with_multiple_operators()
     {
         using TemporaryDirectory directory = new();
@@ -365,7 +387,31 @@ public sealed class ConfigurationValidatorTests
         var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
             () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
 
-        Assert.Contains("match must contain at least one condition", exception.Message);
+        Assert.Contains("match must contain at least one positive condition in 'all' or 'any'", exception.Message);
+    }
+
+    [TestMethod]
+    public async Task Validate_rejects_not_condition_without_a_positive_match_condition()
+    {
+        using TemporaryDirectory directory = new();
+        var source = TestConfiguration.ValidYaml;
+        var matchMarker = source.IndexOf("match:", StringComparison.Ordinal);
+        var actionsMarker = source.IndexOf("actions:", matchMarker, StringComparison.Ordinal);
+        var matchStart = source.LastIndexOf('\n', matchMarker) + 1;
+        var actionsStart = source.LastIndexOf('\n', actionsMarker) + 1;
+        var indentation = source[matchStart..matchMarker];
+        var yaml = source[..matchStart]
+            + $"{indentation}match:\n{indentation}  not:\n{indentation}    ocrAny: [advertisement]\n"
+            + source[actionsStart..];
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(
+                configurationPath,
+                CreateEnvironment(directory.Path),
+                TestContext.CancellationToken));
+
+        Assert.Contains("match must contain at least one positive condition in 'all' or 'any'", exception.Message);
     }
 
     [TestMethod]

@@ -284,6 +284,11 @@ public sealed class CommandLineApplicationTests
         Assert.AreEqual(string.Empty, result.Error);
         Assert.Contains("Immich version: 3.3.5", result.Output);
         Assert.Contains("Candidates discovered: 3", result.Output);
+        Assert.Contains("Assets evaluated: 3", result.Output);
+        Assert.Contains("receipts: 2", result.Output);
+        Assert.Contains("Album additions planned: 0", result.Output);
+        Assert.Contains("Archivals planned: 0", result.Output);
+        Assert.Contains("Mutations executed: 0", result.Output);
         Assert.Contains("Coverage: search windows completed", result.Output);
         Assert.Contains("No library changes were made.", result.Output);
         Assert.AreSequenceEqual(
@@ -300,6 +305,43 @@ public sealed class CommandLineApplicationTests
             request.Method == HttpMethod.Get
             || request.Method == HttpMethod.Post
                 && request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Scan_dry_run_plans_archive_without_sending_mutation_requests()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ScanYaml
+            .Replace("dryRun: true", "dryRun: false", StringComparison.Ordinal)
+            .Replace("archive: false", "archive: true", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), yaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((request, _) =>
+        {
+            var response = request.Uri.AbsolutePath switch
+            {
+                "/api/server/version" => StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""),
+                "/api/search/smart" or "/api/search/metadata" => StubHttpMessageHandler.Json(SearchResponse("asset-1")),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+            };
+            return Task.FromResult(response);
+        });
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml", "--dry-run", "--verbose"],
+            new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
+            () => new HttpClient(handler));
+
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.Contains("Dry run: true", result.Output);
+        Assert.Contains("Archivals planned: 1", result.Output);
+        Assert.Contains("Mutations executed: 0", result.Output);
+        Assert.Contains("matched category 'receipts' using ocrAny=invoice", result.Output);
+        Assert.IsTrue(handler.Requests.All(static request =>
+            request.Method == HttpMethod.Get
+            || request.Method == HttpMethod.Post
+                && request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
+        Assert.HasCount(3, handler.Requests);
     }
 
     [TestMethod]

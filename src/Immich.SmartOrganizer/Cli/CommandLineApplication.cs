@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using Immich.SmartOrganizer.Actions;
+using Immich.SmartOrganizer.Classification;
 using Immich.SmartOrganizer.Configuration;
 using Immich.SmartOrganizer.Immich;
 using Immich.SmartOrganizer.Search;
@@ -202,32 +204,147 @@ internal static class CommandLineApplication
         ImmichApiClient client = new(httpClient, configuration.Immich.Url!, apiKey);
 
         var version = await client.GetServerVersionAsync(cancellationToken);
+        var scanner = configuration.Scanner!;
+        var processing = configuration.Processing!;
         var maxAssets = Math.Min(
-            configuration.Processing!.MaxAssetsPerRun,
+            processing.MaxAssetsPerRun,
             options.Limit ?? int.MaxValue);
         CandidateDiscovery discovery = new(client);
         var result = await discovery.DiscoverAsync(
             selectedCategories,
-            configuration.Scanner!.BatchSize,
+            scanner.BatchSize,
             maxAssets,
-            configuration.Scanner.IncludeVideos,
+            scanner.IncludeVideos,
             cancellationToken);
 
-        var dryRun = options.DryRun || configuration.Processing.DryRun != false;
+        var classifications = ClassificationEngine.Classify(
+            result.Assets,
+            selectedCategories,
+            processing.AmbiguousAssetPolicy!);
+        var actionPlan = DryRunActionPlanner.Create(
+            classifications,
+            processing.MaxArchiveActionsPerRun);
+        var dryRun = options.DryRun || processing.DryRun != false;
         output.WriteLine($"Immich version: {version}");
         output.WriteLine(options.Full
             ? "Scan mode: full re-evaluation of discoverable candidates"
-            : $"Scan mode: candidate discovery (configured mode: {configuration.Scanner.Mode}; incremental state is not applied in this phase)");
+            : $"Scan mode: candidate discovery (configured mode: {scanner.Mode}; incremental state is not applied in this phase)");
         output.WriteLine($"Dry run: {dryRun.ToString().ToLowerInvariant()}");
         output.WriteLine($"Candidates discovered: {result.Assets.Count}");
+        output.WriteLine($"Assets evaluated: {classifications.Count}");
+        output.WriteLine("Category matches:");
+        foreach (var category in selectedCategories.Where(static category => category.Enabled))
+        {
+            var count = classifications.Count(classification =>
+                classification.MatchingCategories.Any(match =>
+                    string.Equals(match.Category.Name, category.Name, StringComparison.OrdinalIgnoreCase)));
+            output.WriteLine($"  {category.Name}: {count}");
+        }
+
+        output.WriteLine($"Needs review: {classifications.Count(static item => item.Status == ClassificationStatus.NeedsReview)}");
+        output.WriteLine($"Ambiguous candidates skipped: {classifications.Count(static item => item.Status == ClassificationStatus.SkippedAsAmbiguous)}");
+        output.WriteLine($"Unmatched: {classifications.Count(static item => item.Status == ClassificationStatus.Unmatched)}");
+        output.WriteLine($"Album additions planned: {actionPlan.AlbumAdditionsPlanned}");
+        output.WriteLine($"Tag applications planned: {actionPlan.TagApplicationsPlanned}");
+        output.WriteLine($"Archivals planned: {actionPlan.ArchiveActionsPlanned}");
+        if (actionPlan.ArchiveActionsLimited > 0)
+        {
+            output.WriteLine(
+                $"Archivals not planned because processing.maxArchiveActionsPerRun was reached: {actionPlan.ArchiveActionsLimited}");
+        }
+
         output.WriteLine($"Coverage: {(result.IsPartial ? "partial" : "search windows completed")}");
         foreach (var reason in result.PartialReasons)
         {
             output.WriteLine($"Partial coverage: {reason}");
         }
 
-        output.WriteLine("This phase only discovers candidates; classification and actions are not implemented. No library changes were made.");
+        output.WriteLine("Execution: planning only; library actions are not executed in this phase.");
+        output.WriteLine("Mutations executed: 0");
+        output.WriteLine("No library changes were made.");
+        if (options.Verbose)
+        {
+            WriteClassificationDetails(output, classifications, actionPlan);
+        }
+
         return result.IsPartial ? PartialScan : Success;
+    }
+
+    private static void WriteClassificationDetails(
+        TextWriter output,
+        IReadOnlyList<ClassificationEngine.AssetClassification> classifications,
+        DryRunActionPlanner.ActionPlan actionPlan)
+    {
+        Dictionary<string, DryRunActionPlanner.PlannedAssetActions> plannedActions =
+            actionPlan.Actions.ToDictionary(static action => action.AssetId, StringComparer.Ordinal);
+
+        foreach (var classification in classifications)
+        {
+            switch (classification.Status)
+            {
+                case ClassificationStatus.Classified:
+                    var match = classification.MatchingCategories[0];
+                    output.WriteLine(
+                        $"Candidate {classification.Asset.Id}: matched category '{match.Category.Name}'"
+                        + $" using {string.Join(", ", match.MatchedConditions)}.");
+                    if (plannedActions.TryGetValue(classification.Asset.Id, out var actions))
+                    {
+                        output.WriteLine($"  Planned actions: {FormatPlannedActions(actions)}");
+                    }
+
+                    break;
+                case ClassificationStatus.NeedsReview:
+                    output.WriteLine(
+                        $"Candidate {classification.Asset.Id}: needs review; matched categories: "
+                        + string.Join(", ", classification.MatchingCategories.Select(
+                            static item => item.Category.Name)));
+                    break;
+                case ClassificationStatus.SkippedAsAmbiguous:
+                    output.WriteLine(
+                        $"Candidate {classification.Asset.Id}: skipped because multiple categories matched: "
+                        + string.Join(", ", classification.MatchingCategories.Select(
+                            static item => item.Category.Name)));
+                    break;
+                case ClassificationStatus.Unmatched:
+                    output.WriteLine($"Candidate {classification.Asset.Id}: no category matched.");
+                    foreach (var evaluation in classification.CategoryEvaluations)
+                    {
+                        var reason = evaluation.UnmetConditions.Count == 0
+                            ? "no configured query evidence"
+                            : string.Join("; ", evaluation.UnmetConditions);
+                        output.WriteLine($"  {evaluation.Category.Name}: {reason}");
+                    }
+
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unknown classification status '{classification.Status}'.");
+            }
+        }
+    }
+
+    private static string FormatPlannedActions(DryRunActionPlanner.PlannedAssetActions actions)
+    {
+        List<string> descriptions = [];
+        if (actions.AlbumName is not null)
+        {
+            descriptions.Add($"add to album '{actions.AlbumName}'");
+        }
+
+        if (actions.TagName is not null)
+        {
+            descriptions.Add($"apply tag '{actions.TagName}'");
+        }
+
+        if (actions.Archive)
+        {
+            descriptions.Add("archive");
+        }
+        else if (actions.ArchiveLimited)
+        {
+            descriptions.Add("archive not planned because the per-run limit was reached");
+        }
+
+        return descriptions.Count == 0 ? "none" : string.Join(", ", descriptions);
     }
 
     private static bool TryParseInit(string[] args, out string? outputPath, out string? error)
