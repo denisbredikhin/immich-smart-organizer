@@ -33,11 +33,6 @@ internal sealed class ClassificationEngine
                     continue;
                 }
 
-                if (category.Name is null || category.Match is null)
-                {
-                    throw new InvalidOperationException("Validated categories must have a name and match conditions.");
-                }
-
                 var categoryEvidence = asset.Evidence
                     .Where(evidence => string.Equals(
                         evidence.Category,
@@ -65,12 +60,12 @@ internal sealed class ClassificationEngine
         AppConfiguration.CategoryOptions category,
         IReadOnlyList<CandidateEvidence> evidence)
     {
-        var match = category.Match!;
+        var match = category.Match;
         List<string> matchedConditions = [];
         List<string> unmetConditions = [];
 
         var allMatched = true;
-        foreach (var condition in match.All!)
+        foreach (var condition in match.All)
         {
             var result = EvaluateCondition(condition, evidence);
             if (result.IsMatch)
@@ -84,7 +79,7 @@ internal sealed class ClassificationEngine
             }
         }
 
-        var anyMatched = match.Any!.Count == 0;
+        var anyMatched = match.Any.Count == 0;
         List<string> failedAnyConditions = [];
         foreach (var condition in match.Any)
         {
@@ -121,7 +116,7 @@ internal sealed class ClassificationEngine
             }
         }
 
-        var excludedBy = match.Exclude!
+        var excludedBy = match.Exclude
             .Select(condition => EvaluateCondition(condition, evidence))
             .FirstOrDefault(static result => result.IsMatch);
         var isExcluded = excludedBy is not null;

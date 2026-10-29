@@ -18,32 +18,19 @@ internal static class ConfigurationValidator
         ValidateCategories(configuration.Categories, errors);
         ValidateLogging(configuration.Logging, errors);
 
-        if (configuration.State is null)
-        {
-            errors.Add("The 'state' section is required.");
-        }
-        else
-        {
-            stateDatabasePath = ValidateStatePath(
-                configuration.State.Path,
-                configurationPath,
-                errors);
-        }
+        stateDatabasePath = ValidateStatePath(
+            configuration.State.Path,
+            configurationPath,
+            errors);
 
         return new ConfigurationValidationResult(errors, stateDatabasePath);
     }
 
     private static void ValidateImmich(
-        AppConfiguration.ImmichOptions? immich,
+        AppConfiguration.ImmichOptions immich,
         ICommandEnvironment environment,
         List<string> errors)
     {
-        if (immich is null)
-        {
-            errors.Add("The 'immich' section is required.");
-            return;
-        }
-
         if (!Uri.TryCreate(immich.Url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             || !string.IsNullOrEmpty(uri.UserInfo)
@@ -64,14 +51,8 @@ internal static class ConfigurationValidator
         }
     }
 
-    private static void ValidateScanner(AppConfiguration.ScannerOptions? scanner, List<string> errors)
+    private static void ValidateScanner(AppConfiguration.ScannerOptions scanner, List<string> errors)
     {
-        if (scanner is null)
-        {
-            errors.Add("The 'scanner' section cannot be null.");
-            return;
-        }
-
         if (scanner.Mode is not ("incremental" or "full"))
         {
             errors.Add("scanner.mode must be 'incremental' or 'full'.");
@@ -83,15 +64,9 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateProcessing(
-        AppConfiguration.ProcessingOptions? processing,
+        AppConfiguration.ProcessingOptions processing,
         List<string> errors)
     {
-        if (processing is null)
-        {
-            errors.Add("The 'processing' section cannot be null.");
-            return;
-        }
-
         if (processing.DryRun is null)
         {
             errors.Add("processing.dryRun cannot be null.");
@@ -113,10 +88,10 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateCategories(
-        List<AppConfiguration.CategoryOptions>? categories,
+        List<AppConfiguration.CategoryOptions> categories,
         List<string> errors)
     {
-        if (categories is null || categories.Count == 0)
+        if (categories.Count == 0)
         {
             errors.Add("At least one category is required.");
             return;
@@ -127,12 +102,6 @@ internal static class ConfigurationValidator
         {
             var category = categories[index];
             var prefix = $"categories[{index}]";
-
-            if (category is null)
-            {
-                errors.Add($"{prefix} cannot be null.");
-                continue;
-            }
 
             if (string.IsNullOrWhiteSpace(category.Name))
             {
@@ -159,18 +128,13 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateMatchQueries(
-        AppConfiguration.SearchOptions? search,
-        AppConfiguration.MatchOptions? match,
+        AppConfiguration.SearchOptions search,
+        AppConfiguration.MatchOptions match,
         string prefix,
         List<string> errors)
     {
-        if (search is null || match is null)
-        {
-            return;
-        }
-
-        var contextualQueries = search.Contextual ?? [];
-        var ocrQueries = search.Ocr ?? [];
+        var contextualQueries = search.Contextual;
+        var ocrQueries = search.Ocr;
         ValidateConditionQueries(match.All, $"{prefix}.match.all", contextualQueries, ocrQueries, errors);
         ValidateConditionQueries(match.Any, $"{prefix}.match.any", contextualQueries, ocrQueries, errors);
         ValidateConditionQueries(match.Exclude, $"{prefix}.match.exclude", contextualQueries, ocrQueries, errors);
@@ -186,25 +150,15 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateConditionQueries(
-        List<AppConfiguration.MatchCondition>? conditions,
+        List<AppConfiguration.MatchCondition> conditions,
         string path,
         IReadOnlyList<string> contextualQueries,
         IReadOnlyList<string> ocrQueries,
         List<string> errors)
     {
-        if (conditions is null)
-        {
-            return;
-        }
-
         for (var index = 0; index < conditions.Count; index++)
         {
             var condition = conditions[index];
-            if (condition is null)
-            {
-                continue;
-            }
-
             var conditionPath = $"{path}[{index}]";
             ValidateConditionQueryTerms(
                 condition.ContextualAny,
@@ -252,16 +206,10 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateSearch(
-        AppConfiguration.SearchOptions? search,
+        AppConfiguration.SearchOptions search,
         string prefix,
         List<string> errors)
     {
-        if (search is null)
-        {
-            errors.Add($"{prefix}.search is required.");
-            return;
-        }
-
         ValidateTerms(search.Contextual, $"{prefix}.search.contextual", errors, required: false);
         ValidateTerms(search.Ocr, $"{prefix}.search.ocr", errors, required: false);
 
@@ -272,16 +220,10 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateMatch(
-        AppConfiguration.MatchOptions? match,
+        AppConfiguration.MatchOptions match,
         string prefix,
         List<string> errors)
     {
-        if (match is null)
-        {
-            errors.Add($"{prefix}.match is required.");
-            return;
-        }
-
         var hasCondition = false;
         ValidateConditionList(match.All, $"{prefix}.match.all", errors, ref hasCondition, countsAsMatch: true);
         ValidateConditionList(match.Any, $"{prefix}.match.any", errors, ref hasCondition, countsAsMatch: true);
@@ -299,28 +241,16 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateConditionList(
-        List<AppConfiguration.MatchCondition>? conditions,
+        List<AppConfiguration.MatchCondition> conditions,
         string path,
         List<string> errors,
         ref bool hasCondition,
         bool countsAsMatch)
     {
-        if (conditions is null)
-        {
-            errors.Add($"{path} cannot be null.");
-            return;
-        }
-
         for (var index = 0; index < conditions.Count; index++)
         {
             hasCondition |= countsAsMatch;
             var condition = conditions[index];
-            if (condition is null)
-            {
-                errors.Add($"{path}[{index}] cannot be null.");
-                continue;
-            }
-
             ValidateCondition(condition, $"{path}[{index}]", errors);
         }
     }
@@ -357,16 +287,10 @@ internal static class ConfigurationValidator
     }
 
     private static void ValidateActions(
-        AppConfiguration.ActionOptions? actions,
+        AppConfiguration.ActionOptions actions,
         string prefix,
         List<string> errors)
     {
-        if (actions is null)
-        {
-            errors.Add($"{prefix}.actions cannot be null.");
-            return;
-        }
-
         if (actions.Album is not null && string.IsNullOrWhiteSpace(actions.Album))
         {
             errors.Add($"{prefix}.actions.album cannot be empty.");
@@ -378,16 +302,10 @@ internal static class ConfigurationValidator
         }
     }
 
-    private static void ValidateLogging(AppConfiguration.LoggingOptions? logging, List<string> errors)
+    private static void ValidateLogging(AppConfiguration.LoggingOptions logging, List<string> errors)
     {
-        if (logging is null)
-        {
-            errors.Add("The 'logging' section cannot be null.");
-            return;
-        }
-
         string[] levels = ["Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"];
-        if (logging.Level is null || !levels.Contains(logging.Level, StringComparer.OrdinalIgnoreCase))
+        if (!levels.Contains(logging.Level, StringComparer.OrdinalIgnoreCase))
         {
             errors.Add("logging.level must be one of Trace, Debug, Information, Warning, Error, Critical, or None.");
         }
@@ -399,7 +317,7 @@ internal static class ConfigurationValidator
     }
 
     private static string? ValidateStatePath(
-        string? configuredPath,
+        string configuredPath,
         string configurationPath,
         List<string> errors)
     {
