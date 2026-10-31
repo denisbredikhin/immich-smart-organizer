@@ -3,7 +3,7 @@ using Immich.SmartOrganizer.Immich;
 
 namespace Immich.SmartOrganizer.Search;
 
-internal sealed class CandidateDiscovery(ImmichApiClient client)
+internal sealed class CandidateDiscovery(ImmichApiClient client, int maxErrors = int.MaxValue)
 {
     public async Task<SearchDiscoveryResult> DiscoverAsync(
         IReadOnlyList<AppConfiguration.CategoryOptions> categories,
@@ -41,6 +41,7 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
 
         CandidateAccumulator candidates = new(maxAssets);
         List<string> partialReasons = [];
+        var errors = 0;
         for (var index = 0; index < plans.Count; index++)
         {
             if (candidates.Count >= maxAssets)
@@ -86,6 +87,12 @@ internal sealed class CandidateDiscovery(ImmichApiClient client)
                 when (exception.Kind is ImmichApiFailureKind.Connectivity or ImmichApiFailureKind.Transient)
             {
                 AddPartialReason(partialReasons, "One or more search requests failed after bounded retries.");
+                errors++;
+                if (errors >= maxErrors)
+                {
+                    AddPartialReason(partialReasons, "processing.maxErrorsPerRun stopped remaining search requests.");
+                    break;
+                }
             }
         }
 

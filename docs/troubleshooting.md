@@ -51,7 +51,13 @@ Check that each rule term is also configured in the corresponding category `sear
 
 ## Archive or album changes did not occur
 
-That is expected: the current implementation only displays a dry-run action plan. It does not mutate albums, tags, or archive state, even if `processing.dryRun` is false. Do not interpret planned actions as completed operations.
+Check `processing.dryRun` and whether `--dry-run` was passed. Partial discovery blocks live actions. Live archival requires a conservative `match.all` rule containing both contextual and OCR conditions; only stable Immich 3.3.5 is accepted for mutations. Review confirmed counts and action failures, not planned counts.
+
+## A state lock or partial action failure occurs
+
+If another live scan owns the same state database, wait for it to exit; do not remove its lock file. If no process is active, the empty lock file can remain safely. State is local to one server/user; use a separate path if changing libraries.
+
+Rerun with the same state database after an interrupted or partial action run. Confirmed actions are journaled, duplicate membership is reconciled, and archive visibility is checked on the server. Deferred archives can run on subsequent invocations within each run's limit. Use `--full` to deliberately reconcile membership edited outside the tool. See [state recovery](configuration.md#state-and-incremental-recovery) and [manual undo](classification.md#live-execution-and-manual-recovery).
 
 ## Use verbose output carefully
 

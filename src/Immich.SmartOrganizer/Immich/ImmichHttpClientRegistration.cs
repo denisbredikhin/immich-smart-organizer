@@ -28,6 +28,17 @@ internal static class ImmichHttpClientRegistration
             options.Retry.BackoffType = DelayBackoffType.Exponential;
             options.Retry.UseJitter = false;
             options.Retry.MaxDelay = MaximumRetryDelay;
+            options.Retry.ShouldHandle = args =>
+            {
+                var request = args.Outcome.Result?.RequestMessage ?? args.Context.GetRequestMessage();
+                if (request is null
+                    || request.Options.TryGetValue(ImmichApiClient.MutationRequest, out var mutation) && mutation)
+                {
+                    return ValueTask.FromResult(false);
+                }
+
+                return ValueTask.FromResult(HttpClientResiliencePredicates.IsTransient(args.Outcome));
+            };
             options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
             options.AttemptTimeout.Timeout = AttemptTimeout;
             options.TotalRequestTimeout.Timeout =

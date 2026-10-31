@@ -435,6 +435,7 @@ FodyWeavers.xsd
 *.db
 *.db-shm
 *.db-wal
+*.db.lock
 *.sqlite
 *.sqlite3
 /logs/

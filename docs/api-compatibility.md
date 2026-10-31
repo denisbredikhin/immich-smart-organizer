@@ -25,6 +25,8 @@ The minimum documented permission identifiers for planned operations are:
 | Metadata/OCR search | `POST /search/metadata` | `asset.read` |
 | Contextual/CLIP search | `POST /search/smart` | `asset.read` |
 | Retrieve OCR text for an asset | `GET /assets/{id}/ocr` | `asset.read` |
+| Read current asset visibility/update marker | `GET /assets/{id}` | `asset.read` |
+| Identify the authenticated user for live execution | `GET /users/me` | `user.read` |
 | List albums | `GET /albums` | `album.read` |
 | Create an album | `POST /albums` | `album.create` |
 | Add assets to an album | `PUT /albums/{id}/assets` | `albumAsset.create` |
@@ -71,16 +73,27 @@ The CLI adds `/api` to the configured Immich server URL while preserving a rever
 
 The client sends each configured OCR query separately with `filter.ocr.matches` and follows metadata `nextCursor` values. It sends each contextual query separately to smart search, whose result window has no supported continuation. Candidates are deduplicated by asset ID, and each retains its category and exact matching query as OCR or contextual evidence. The implementation does not fetch OCR documents or derive classifications or confidence scores.
 
-The `Microsoft.Extensions.Http.Resilience` standard resilience handler retries requests at most twice after the initial attempt for HTTP 408, 429, 5xx, network failures, and timeouts. Backoff starts at 200 ms, is exponential, and is capped at two seconds; `Retry-After` is honored within that cap. The request timeout is 30 seconds per attempt, with a 94-second total timeout covering all attempts and delays. Authentication/permission failures and incompatible responses are not retried. Immich search endpoints use POST but are read-only, so retries do not repeat library mutations. If mutation endpoints are added later, their retry policy must be reconsidered. Search failures after bounded retries, a full smart-search result window, deprecated-only metadata continuation, and configured candidate limits are reported as partial coverage. Cursor repetition is treated as an incompatible API response to prevent an unbounded loop.
+The `Microsoft.Extensions.Http.Resilience` standard resilience handler retries read-only GET/search requests at most twice after the initial attempt for HTTP 408, 429, 5xx, network failures, and timeouts. Backoff starts at 200 ms, is exponential, and is capped at two seconds; `Retry-After` is honored within that cap. The request timeout is 30 seconds per attempt, with a 94-second total timeout covering all attempts and delays. Authentication/permission failures and incompatible responses are not retried. **Mutation requests are never automatically retried**, including create, membership and archive operations. Their results may be uncertain after a lost response; a later run reconciles the server before resuming. Search failures after bounded retries, a full smart-search result window, deprecated-only metadata continuation, and configured candidate limits are reported as partial coverage. Cursor repetition is treated as an incompatible API response to prevent an unbounded loop.
 
-`scan` reports the server version, configured scan mode, dry-run setting, unique candidate count, category classifications, planned actions, and any partial-coverage reasons. Exit codes are `3` for connectivity or authentication/permission errors, `4` for an unsupported API/version/response, and `5` when discovery is partial. Phase 4 evaluates rules against exact, case-insensitive query evidence and creates a dry-run plan; it does not issue album, tag, archive, or delete requests. A successful search-window pass does not imply exhaustive library coverage.
+`scan` reports the server version, configured scan mode, dry-run setting, unique candidate count, category classifications, planned/confirmed actions and partial-coverage reasons. A failure before execution uses exit `3` (connectivity/authentication) or `4` (incompatible API); failed/deferred actions return `5` with confirmed progress reported. Dry-run sends no mutations. A successful search-window pass does not imply exhaustive library coverage.
 
 ## Albums, tags, and archive
 
-- Album display names are flat names. The API accepts an album name and returns album/user information; list and inspect existing albums before creating or mutating membership. Add assets with the album asset endpoint and reconcile state from the server response.
-- Tag hierarchy is represented by `parentId` on `TagCreateDto`, not by assuming that slashes in a name create a hierarchy. Tag creation and asset assignment require separate permissions.
+- Album display names are flat names. Stage 5 uses `GET /albums?isOwned=true&name=...`, exact name comparison, and `albumUsers[0]` (documented as the owner) with role/user verification. More than one owned match is an error. Creation uses `CreateAlbumDto.albumName`; membership uses `BulkIdsDto.ids`.
+- Tag hierarchy is represented by `parentId` on `TagCreateDto`. `name` explicitly disallows `/`; Stage 5 splits configured paths into non-empty names and creates children with the parent ID. `GET /tags` returns `name`, `id`, `value` and optional `parentId`; creation and membership require separate permissions.
+- Album/tag membership endpoints return one `BulkIdResponseDto` per requested ID. Stage 5 sends one ID at a time and requires a matching ID and boolean `success`. A server `duplicate` result means membership is already satisfied; permission/not-found/unknown/validation errors are not successful actions.
 - The asset visibility enum includes `archive`, and the bulk asset-update payload contains `ids` and `visibility`. The v3.3.5 OpenAPI marks both `PUT /assets` and `PUT /assets/{id}` update operations deprecated; there is no non-deprecated archive mutation endpoint in the inspected schema. If archival is implemented for this target, isolate this compatibility risk, require explicit opt-in, use only the documented `visibility: "archive"` update, and verify server confirmation. Archiving remains disabled by default.
 - No delete endpoint is needed for the planned operations. The tool must never call asset deletion or alter original media.
+
+## Stage 5 confirmation and state
+
+Live mutations are restricted to stable **3.3.5**, the reviewed target. Read-only discovery keeps the existing 3.x search compatibility policy. This is schema-grounded implementation, not live-server validation.
+
+`GET /assets/{id}` supplies `ownerId`, `updatedAt` (documented as database-maintained on asset updates) and `visibility`. Live execution protects foreign-owned, hidden and locked assets. Archive updates use `PUT /assets` with `ids` and `visibility: "archive"`, require HTTP 204 and then a fresh asset read confirming archive visibility. Already archived assets are not archived again.
+
+Search options `includeArchived: false` and `includeExternalLibraries: false` map respectively to `filter.visibility.eq: "timeline"` and `filter.libraryId.eq: null` (`IdFilterNullable` permits null). Neither option proves exhaustive discovery or live indexing correctness.
+
+The local SQLite journal is bound to server URL/user, uses configuration/evidence fingerprints and current asset update markers, and never stores full OCR documents or credentials. External membership edits may not update the asset marker, so use `--full` for deliberate reconciliation. Discovery remains query-based, with no date-only incremental cursor. Any partial discovery prevents live execution.
 
 ## Compatibility policy
 

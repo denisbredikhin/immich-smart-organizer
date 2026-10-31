@@ -28,7 +28,7 @@ Create a configuration file in the directory from which the scheduled command wi
 immich-smart-organizer init
 ```
 
-Set the environment variable named by `immich.apiKeyEnv` in the process environment. Keep the key out of configuration YAML, command-line arguments, logs, and source control. Use an Immich API key with only the permissions needed; read-only discovery currently needs `asset.read`.
+Set the environment variable named by `immich.apiKeyEnv` in the process environment. Keep the key out of configuration YAML, command-line arguments, logs, and source control. Discovery needs `asset.read`; live execution also needs `user.read` and permissions for the enabled [actions](api-compatibility.md#authentication-and-permissions).
 
 Configuration selection order is:
 
@@ -36,7 +36,7 @@ Configuration selection order is:
 2. `IMMICH_SMART_ORGANIZER_CONFIG`
 3. `immich-smart-organizer.yaml` in the current working directory
 
-Relative configuration paths are based on the current working directory. Relative `state.path` values are based on the selected configuration file's directory. The state path is currently validated but scan state is not persisted.
+Relative configuration paths are based on the current working directory. Relative `state.path` values are based on the selected configuration file's directory. Live execution persists action progress and locks this database exclusively. Use the same canonical state path for overlapping schedules; a second live process fails rather than racing. Keep the database on a local filesystem. Dry-run does not write completed state.
 
 The sample configuration uses `http://localhost:2283`; change it to the correct Immich base URL before scanning. Review [configuration](configuration.md) and [API compatibility](api-compatibility.md) before deploying.
 

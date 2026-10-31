@@ -345,6 +345,330 @@ public sealed class CommandLineApplicationTests
             || request.Method == HttpMethod.Post
                 && request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
         Assert.HasCount(3, handler.Requests);
+        Assert.IsFalse(File.Exists(Path.Combine(directory.Path, "state.db")));
+        Assert.IsFalse(File.Exists(Path.Combine(directory.Path, "state.db.lock")));
+    }
+
+    [TestMethod]
+    public async Task Scan_default_dry_run_does_not_create_state_or_send_mutations()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = LiveArchiveYaml.Replace("dryRun: false", "dryRun: true", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), yaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = SearchAndVersionHandler();
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            ApiEnvironment(),
+            handler);
+
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.Contains("Dry run: true", result.Output);
+        Assert.Contains("Archivals planned: 1", result.Output);
+        Assert.Contains("Mutations executed: 0", result.Output);
+        Assert.IsTrue(handler.Requests.All(IsReadOnlyRequest));
+        Assert.IsFalse(File.Exists(Path.Combine(directory.Path, "state.db")));
+        Assert.IsFalse(File.Exists(Path.Combine(directory.Path, "state.db.lock")));
+    }
+
+    [TestMethod]
+    [DataRow("contextual")]
+    [DataRow("ocr")]
+    public async Task Scan_requires_both_contextual_and_ocr_match_gates_for_live_archive(string missingGate)
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = LiveArchiveYaml.Replace(
+            missingGate == "contextual"
+                ? "- contextualAny: [receipt]"
+                : "- ocrAny: [invoice]",
+            string.Empty,
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), yaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((_, _) =>
+            throw new InvalidOperationException("Unsafe live archive configuration must fail before API access."));
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            ApiEnvironment(),
+            handler);
+
+        Assert.AreEqual(2, result.ExitCode);
+        Assert.Contains("Live archival requires both contextualAny and ocrAny/ocrAll", result.Error);
+        Assert.IsEmpty(handler.Requests);
+    }
+
+    [TestMethod]
+    public async Task Scan_partial_discovery_blocks_all_live_mutations()
+    {
+        using TemporaryDirectory directory = new();
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), LiveArchiveYaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((request, _) =>
+        {
+            if (request.Uri.AbsolutePath == "/api/server/version")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""));
+            }
+
+            if (request.Uri.AbsolutePath == "/api/search/smart")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json("unavailable", HttpStatusCode.ServiceUnavailable));
+            }
+
+            if (request.Uri.AbsolutePath == "/api/search/metadata")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json(SearchResponse("asset-1")));
+            }
+
+            throw new InvalidOperationException($"Partial discovery must not execute {request.Method} {request.Uri}.");
+        });
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            ApiEnvironment(),
+            handler);
+
+        Assert.AreEqual(5, result.ExitCode);
+        Assert.Contains("Coverage: partial", result.Output);
+        Assert.Contains("Execution: blocked because discovery was partial.", result.Output);
+        Assert.Contains("Mutations executed: 0", result.Output);
+        Assert.AreEqual(5, handler.Requests.Count);
+        Assert.IsFalse(handler.Requests.Any(static request => request.Uri.AbsolutePath == "/api/users/me"));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Method == HttpMethod.Put));
+    }
+
+    [TestMethod]
+    public async Task Scan_error_threshold_stops_later_searches_before_live_actions()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = LiveArchiveYaml.Replace("maxErrorsPerRun: 5", "maxErrorsPerRun: 1", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), yaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((request, _) => Task.FromResult(
+            request.Uri.AbsolutePath == "/api/server/version"
+                ? StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}""")
+                : StubHttpMessageHandler.Json("unavailable", HttpStatusCode.ServiceUnavailable)));
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            ApiEnvironment(),
+            handler);
+
+        Assert.AreEqual(5, result.ExitCode);
+        Assert.Contains("maxErrorsPerRun stopped remaining search requests", result.Output);
+        Assert.AreEqual(4, handler.Requests.Count);
+        Assert.IsTrue(handler.Requests.Skip(1).All(static request => request.Uri.AbsolutePath == "/api/search/smart"));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Uri.AbsolutePath == "/api/search/metadata"));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Method == HttpMethod.Put));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Uri.AbsolutePath == "/api/users/me"));
+    }
+
+    [TestMethod]
+    public async Task Live_scan_composes_http_and_sqlite_then_skips_unchanged_completed_asset()
+    {
+        using TemporaryDirectory directory = new();
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), LiveArchiveYaml, TestContext.CancellationToken);
+        var visibility = "timeline";
+        StubHttpMessageHandler FirstHandler() => new((request, _) => Task.FromResult(request.Uri.AbsolutePath switch
+        {
+            "/api/server/version" => StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""),
+            "/api/search/smart" or "/api/search/metadata" => StubHttpMessageHandler.Json(SearchResponse("asset-1")),
+            "/api/users/me" => StubHttpMessageHandler.Json("""{"id":"user-1"}"""),
+            "/api/assets/asset-1" => AssetResponse("asset-1", "user-1", "2026-10-31T12:00:00Z", visibility),
+            "/api/assets" when request.Method == HttpMethod.Put => ArchiveAndReturnNoContent(() => visibility = "archive"),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        }));
+        var firstHandler = FirstHandler();
+
+        var first = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), firstHandler);
+
+        Assert.AreEqual(0, first.ExitCode);
+        Assert.Contains("Archivals confirmed: 1", first.Output);
+        Assert.Contains("Mutations executed: 1", first.Output);
+        Assert.AreEqual(1, firstHandler.Requests.Count(static request => request.Method == HttpMethod.Put));
+        Assert.IsTrue(File.Exists(Path.Combine(directory.Path, "state.db")));
+
+        var secondHandler = new StubHttpMessageHandler((request, _) => Task.FromResult(request.Uri.AbsolutePath switch
+        {
+            "/api/server/version" => StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""),
+            "/api/search/smart" or "/api/search/metadata" => StubHttpMessageHandler.Json(SearchResponse("asset-1")),
+            "/api/users/me" => StubHttpMessageHandler.Json("""{"id":"user-1"}"""),
+            "/api/assets/asset-1" => AssetResponse("asset-1", "user-1", "2026-10-31T12:00:00Z", visibility),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        }));
+
+        var second = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), secondHandler);
+
+        Assert.AreEqual(0, second.ExitCode);
+        Assert.Contains("Unchanged completed assets skipped: 1", second.Output);
+        Assert.Contains("Archivals confirmed: 0", second.Output);
+        Assert.AreEqual(0, secondHandler.Requests.Count(static request => request.Method == HttpMethod.Put));
+        Assert.AreEqual(1, secondHandler.Requests.Count(static request =>
+            request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/assets/asset-1"));
+    }
+
+    [TestMethod]
+    public async Task Live_scan_rechecks_asset_marker_rule_changes_and_full_mode()
+    {
+        using TemporaryDirectory directory = new();
+        var marker = "2026-10-31T12:00:00Z";
+        var membershipWrites = 0;
+        Dictionary<string, string> albums = new(StringComparer.Ordinal);
+        StubHttpMessageHandler CreateHandler() => new((request, _) =>
+        {
+            if (request.Uri.AbsolutePath == "/api/server/version")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""));
+            }
+
+            if (request.Uri.AbsolutePath is "/api/search/smart" or "/api/search/metadata")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json(SearchResponse("asset-1")));
+            }
+
+            if (request.Uri.AbsolutePath == "/api/users/me")
+            {
+                return Task.FromResult(StubHttpMessageHandler.Json("""{"id":"user-1"}"""));
+            }
+
+            if (request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/assets/asset-1")
+            {
+                return Task.FromResult(AssetResponse("asset-1", "user-1", marker, "timeline"));
+            }
+
+            if (request.Method == HttpMethod.Get && request.Uri.AbsolutePath == "/api/albums")
+            {
+                var name = Uri.UnescapeDataString(request.Uri.Query.Split("name=").Last());
+                var response = albums.TryGetValue(name, out var albumId)
+                    ? System.Text.Json.JsonSerializer.Serialize(new[]
+                    {
+                        new
+                        {
+                            id = albumId,
+                            albumName = name,
+                            albumUsers = new[] { new { role = "owner", user = new { id = "user-1" } } }
+                        }
+                    })
+                    : "[]";
+                return Task.FromResult(StubHttpMessageHandler.Json(response));
+            }
+
+            if (request.Method == HttpMethod.Post && request.Uri.AbsolutePath == "/api/albums")
+            {
+                using System.Text.Json.JsonDocument body = System.Text.Json.JsonDocument.Parse(request.Body!);
+                var name = body.RootElement.GetProperty("albumName").GetString()!;
+                var albumId = "album-" + name.ToLowerInvariant();
+                albums[name] = albumId;
+                return Task.FromResult(StubHttpMessageHandler.Json(System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    id = albumId,
+                    albumName = name,
+                    albumUsers = new[] { new { role = "owner", user = new { id = "user-1" } } }
+                })));
+            }
+
+            if (request.Method == HttpMethod.Put && request.Uri.AbsolutePath.StartsWith("/api/albums/", StringComparison.Ordinal))
+            {
+                membershipWrites++;
+                using System.Text.Json.JsonDocument body = System.Text.Json.JsonDocument.Parse(request.Body!);
+                var assetId = body.RootElement.GetProperty("ids")[0].GetString();
+                return Task.FromResult(StubHttpMessageHandler.Json(membershipWrites == 1
+                    ? System.Text.Json.JsonSerializer.Serialize(new[] { new { id = assetId, success = true } })
+                    : System.Text.Json.JsonSerializer.Serialize(new[] { new { id = assetId, success = false, error = "duplicate" } })));
+            }
+
+            throw new InvalidOperationException($"Unexpected request {request.Method} {request.Uri}.");
+        });
+
+        var configPath = Path.Combine(directory.Path, "scan.yaml");
+        await File.WriteAllTextAsync(configPath, LiveAlbumYaml("Receipts"), TestContext.CancellationToken);
+        var firstHandler = CreateHandler();
+        var first = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), firstHandler);
+        var unchangedHandler = CreateHandler();
+        var unchanged = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), unchangedHandler);
+
+        marker = "2026-10-31T12:00:01Z";
+        var markerHandler = CreateHandler();
+        var markerChanged = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), markerHandler);
+
+        await File.WriteAllTextAsync(configPath, LiveAlbumYaml("Invoices"), TestContext.CancellationToken);
+        var rulesHandler = CreateHandler();
+        var rulesChanged = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml"], ApiEnvironment(), rulesHandler);
+        var fullHandler = CreateHandler();
+        var full = await ExecuteAsync(directory.Path, ["scan", "--config", "scan.yaml", "--full"], ApiEnvironment(), fullHandler);
+
+        Assert.AreEqual(0, first.ExitCode);
+        Assert.Contains("Album additions confirmed: 1", first.Output);
+        Assert.AreEqual(0, unchanged.ExitCode);
+        Assert.Contains("Unchanged completed assets skipped: 1", unchanged.Output);
+        Assert.AreEqual(0, unchangedHandler.Requests.Count(static request =>
+            request.Method == HttpMethod.Put && request.Uri.AbsolutePath.StartsWith("/api/albums/", StringComparison.Ordinal)));
+        Assert.AreEqual(0, markerChanged.ExitCode);
+        Assert.AreEqual(1, markerHandler.Requests.Count(static request =>
+            request.Method == HttpMethod.Put && request.Uri.AbsolutePath.StartsWith("/api/albums/", StringComparison.Ordinal)));
+        Assert.AreEqual(0, rulesChanged.ExitCode);
+        Assert.AreEqual(1, rulesHandler.Requests.Count(static request =>
+            request.Method == HttpMethod.Put && request.Uri.AbsolutePath.StartsWith("/api/albums/", StringComparison.Ordinal)));
+        Assert.AreEqual(0, full.ExitCode);
+        Assert.Contains("Scan mode: full re-evaluation of discoverable candidates", full.Output);
+        Assert.AreEqual(1, fullHandler.Requests.Count(static request =>
+            request.Method == HttpMethod.Put && request.Uri.AbsolutePath.StartsWith("/api/albums/", StringComparison.Ordinal)));
+        Assert.AreEqual(4, membershipWrites);
+        Assert.IsFalse(firstHandler.Requests.Any(static request => request.Method == HttpMethod.Delete));
+    }
+
+    [TestMethod]
+    public async Task Category_filter_does_not_hide_cross_category_ambiguity()
+    {
+        using TemporaryDirectory directory = new();
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), AmbiguousLiveYaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((request, _) => Task.FromResult(request.Uri.AbsolutePath switch
+        {
+            "/api/server/version" => StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""),
+            "/api/search/smart" or "/api/search/metadata" => StubHttpMessageHandler.Json(SearchResponse("asset-1")),
+            "/api/users/me" => StubHttpMessageHandler.Json("""{"id":"user-1"}"""),
+            _ => throw new InvalidOperationException($"Ambiguous candidates must not mutate: {request.Method} {request.Uri}.")
+        }));
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml", "--category", "receipts"],
+            ApiEnvironment(),
+            handler);
+
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.Contains("Needs review: 1", result.Output);
+        Assert.Contains("Ambiguous candidates skipped: 0", result.Output);
+        Assert.Contains("Album additions planned: 0", result.Output);
+        Assert.AreEqual(2, handler.Requests.Count(static request => request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Method == HttpMethod.Put));
+        Assert.IsFalse(handler.Requests.Any(static request => request.Method == HttpMethod.Post && !request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task Scan_rejects_invalid_tag_hierarchy_before_contacting_Immich()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace(
+            "tag: Documents/Receipts",
+            "tag: Documents//Receipts",
+            StringComparison.Ordinal);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scan.yaml"), yaml, TestContext.CancellationToken);
+        StubHttpMessageHandler handler = new((_, _) =>
+            throw new InvalidOperationException("Invalid tag hierarchy must be rejected before API requests."));
+
+        var result = await ExecuteAsync(
+            directory.Path,
+            ["scan", "--config", "scan.yaml"],
+            new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
+            handler);
+
+        Assert.AreEqual(2, result.ExitCode);
+        Assert.Contains("categories[0].actions.tag must contain non-empty hierarchy segments", result.Error);
+        Assert.IsEmpty(handler.Requests);
+        Assert.AreEqual(string.Empty, result.Output);
     }
 
     [TestMethod]
@@ -506,6 +830,129 @@ public sealed class CommandLineApplicationTests
                 items = assetIds.Select(static id => new { id })
             }
         });
+
+    private static HttpResponseMessage AssetResponse(
+        string id,
+        string ownerId,
+        string updatedAt,
+        string visibility) =>
+        StubHttpMessageHandler.Json(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            id,
+            ownerId,
+            updatedAt,
+            visibility
+        }));
+
+    private static HttpResponseMessage ArchiveAndReturnNoContent(Action archive)
+    {
+        archive();
+        return new HttpResponseMessage(HttpStatusCode.NoContent);
+    }
+
+    private static StubHttpMessageHandler SearchAndVersionHandler() =>
+        new((request, _) => Task.FromResult(request.Uri.AbsolutePath switch
+        {
+            "/api/server/version" => StubHttpMessageHandler.Json("""{"major":3,"minor":3,"patch":5,"prerelease":0}"""),
+            "/api/search/smart" or "/api/search/metadata" => StubHttpMessageHandler.Json(SearchResponse("asset-1")),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        }));
+
+    private static IReadOnlyDictionary<string, string?> ApiEnvironment() =>
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["IMMICH_API_KEY"] = "test-api-key"
+        };
+
+    private static bool IsReadOnlyRequest(CapturedHttpRequest request) =>
+        request.Method == HttpMethod.Get
+        || request.Method == HttpMethod.Post
+            && request.Uri.AbsolutePath.StartsWith("/api/search/", StringComparison.Ordinal);
+
+    private static string LiveAlbumYaml(string albumName) => $$"""
+        immich:
+          url: "http://localhost:2283"
+          apiKeyEnv: IMMICH_API_KEY
+        scanner:
+          batchSize: 10
+        processing:
+          dryRun: false
+          maxAssetsPerRun: 20
+          maxErrorsPerRun: 5
+          ambiguousAssetPolicy: review
+        state:
+          path: ./state.db
+        categories:
+          - name: receipts
+            search:
+              contextual: [receipt]
+            match:
+              all:
+                - contextualAny: [receipt]
+            actions:
+              album: {{albumName}}
+        """;
+
+    private const string LiveArchiveYaml = """
+        immich:
+          url: "http://localhost:2283"
+          apiKeyEnv: IMMICH_API_KEY
+        scanner:
+          batchSize: 10
+          includeArchived: true
+          includeExternalLibraries: true
+        processing:
+          dryRun: false
+          maxAssetsPerRun: 20
+          maxArchiveActionsPerRun: 1
+          maxErrorsPerRun: 5
+          ambiguousAssetPolicy: review
+        state:
+          path: ./state.db
+        categories:
+          - name: receipts
+            enabled: true
+            search:
+              contextual: [receipt]
+              ocr: [invoice]
+            match:
+              all:
+                - contextualAny: [receipt]
+                - ocrAny: [invoice]
+            actions:
+              archive: true
+        """;
+
+    private const string AmbiguousLiveYaml = """
+        immich:
+          url: "http://localhost:2283"
+          apiKeyEnv: IMMICH_API_KEY
+        scanner:
+          batchSize: 10
+        processing:
+          dryRun: false
+          maxAssetsPerRun: 20
+          ambiguousAssetPolicy: review
+        state:
+          path: ./state.db
+        categories:
+          - name: receipts
+            search:
+              contextual: [receipt]
+            match:
+              all:
+                - contextualAny: [receipt]
+            actions:
+              album: Receipts
+          - name: invoices
+            search:
+              contextual: [invoice]
+            match:
+              all:
+                - contextualAny: [invoice]
+            actions:
+              album: Invoices
+        """;
 
     private sealed record CommandResult(int ExitCode, string Output, string Error);
 

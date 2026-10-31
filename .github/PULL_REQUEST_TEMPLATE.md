@@ -11,7 +11,7 @@
 ## Safety and compatibility
 
 - [ ] No secrets, private configuration, or personal media are included
-- [ ] The change preserves the no-mutation guarantee, or clearly documents a deliberate future change
+- [ ] Dry-run makes no mutation requests; live behavior changes and safety gates are documented
 - [ ] API compatibility impact is documented
 
 ## Additional context
