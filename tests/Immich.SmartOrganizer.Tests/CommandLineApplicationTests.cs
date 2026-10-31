@@ -2,6 +2,8 @@ using System.Net;
 using Immich.SmartOrganizer.Cli;
 using Immich.SmartOrganizer.Immich;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http;
 
 namespace Immich.SmartOrganizer.Tests;
 
@@ -272,10 +274,6 @@ public sealed class CommandLineApplicationTests
             };
             return Task.FromResult(response);
         });
-        ServiceCollection services = new();
-        services.AddImmichHttpClient(() => handler);
-        using ServiceProvider serviceProvider = services.BuildServiceProvider();
-
         var result = await ExecuteAsync(
             directory.Path,
             ["scan", "--config", "scan.yaml", "--category", "receipts"],
@@ -283,7 +281,7 @@ public sealed class CommandLineApplicationTests
             {
                 ["IMMICH_API_KEY"] = "test-api-key"
             },
-            () => new HttpClient(handler));
+            handler);
 
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual(string.Empty, result.Error);
@@ -335,7 +333,7 @@ public sealed class CommandLineApplicationTests
             directory.Path,
             ["scan", "--config", "scan.yaml", "--dry-run", "--verbose"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => new HttpClient(handler));
+            handler);
 
         Assert.AreEqual(0, result.ExitCode);
         Assert.Contains("Dry run: true", result.Output);
@@ -365,7 +363,7 @@ public sealed class CommandLineApplicationTests
             directory.Path,
             ["scan", "--config", "scan.yaml"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => new HttpClient(handler));
+            handler);
 
         Assert.AreEqual(2, result.ExitCode);
         Assert.Contains("Configuration error:", result.Error);
@@ -385,7 +383,7 @@ public sealed class CommandLineApplicationTests
             directory.Path,
             ["scan", "--config", "scan.yaml"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => new HttpClient(handler));
+            handler);
 
         Assert.AreEqual(4, result.ExitCode);
         Assert.Contains("is not supported", result.Error);
@@ -407,7 +405,7 @@ public sealed class CommandLineApplicationTests
             directory.Path,
             ["scan", "--config", "scan.yaml"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => new HttpClient(handler));
+            handler);
 
         Assert.AreEqual(3, result.ExitCode);
         Assert.Contains("authentication or permission failure", result.Error);
@@ -431,16 +429,11 @@ public sealed class CommandLineApplicationTests
             };
             return Task.FromResult(response);
         });
-        ServiceCollection services = new();
-        services.AddImmichHttpClient(() => handler);
-        using ServiceProvider serviceProvider = services.BuildServiceProvider();
-
         var result = await ExecuteAsync(
             directory.Path,
             ["scan", "--config", "scan.yaml"],
             new Dictionary<string, string?>(StringComparer.Ordinal) { ["IMMICH_API_KEY"] = "test-api-key" },
-            () => serviceProvider.GetRequiredService<IHttpClientFactory>()
-                .CreateClient(ImmichHttpClientRegistration.ClientName));
+            handler);
 
         Assert.AreEqual(5, result.ExitCode);
         Assert.Contains("Candidates discovered: 1", result.Output);
@@ -481,18 +474,26 @@ public sealed class CommandLineApplicationTests
         string currentDirectory,
         string[] args,
         IReadOnlyDictionary<string, string?> environmentVariables,
-        Func<HttpClient>? httpClientFactory = null)
+        HttpMessageHandler? httpMessageHandler = null)
     {
         using StringWriter output = new();
         using StringWriter error = new();
         TestCommandEnvironment environment = new(currentDirectory, environmentVariables);
 
-        var exitCode = await CommandLineApplication.RunAsync(
-            args,
-            output,
-            error,
-            environment,
-            httpClientFactory: httpClientFactory);
+        ServiceCollection services = new();
+        services.AddApplicationServices();
+        services.Replace(ServiceDescriptor.Singleton<ICommandEnvironment>(environment));
+        if (httpMessageHandler is not null)
+        {
+            services.Configure<HttpClientFactoryOptions>(
+                ImmichHttpClientRegistration.ClientName,
+                options => options.HttpMessageHandlerBuilderActions.Add(
+                    builder => builder.PrimaryHandler = httpMessageHandler));
+        }
+
+        using ServiceProvider serviceProvider = services.BuildServiceProvider();
+        var application = serviceProvider.GetRequiredService<CommandLineApplication>();
+        var exitCode = await application.RunAsync(args, output, error);
         return new CommandResult(exitCode, output.ToString(), error.ToString());
     }
 

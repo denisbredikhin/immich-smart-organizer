@@ -1,15 +1,17 @@
 using System.Globalization;
+using System.Net.Http;
 using System.Text;
 using Immich.SmartOrganizer.Actions;
 using Immich.SmartOrganizer.Classification;
 using Immich.SmartOrganizer.Configuration;
 using Immich.SmartOrganizer.Immich;
 using Immich.SmartOrganizer.Search;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer.Cli;
 
-internal static class CommandLineApplication
+internal sealed class CommandLineApplication(
+    ICommandEnvironment environment,
+    IHttpClientFactory httpClientFactory)
 {
     private const int Success = 0;
     private const int GeneralFailure = 1;
@@ -19,12 +21,10 @@ internal static class CommandLineApplication
     private const int PartialScan = 5;
     private const int MaximumScanLimit = 100_000;
 
-    public static async Task<int> RunAsync(
+    public async Task<int> RunAsync(
         string[] args,
         TextWriter output,
         TextWriter error,
-        ICommandEnvironment environment,
-        Func<HttpClient>? httpClientFactory = null,
         CancellationToken cancellationToken = default)
     {
         if (args is [] or ["--help"] or ["-h"])
@@ -43,9 +43,9 @@ internal static class CommandLineApplication
         {
             return args[0] switch
             {
-                "init" => await RunInitAsync(args, output, error, environment, cancellationToken),
-                "config" => await RunConfigAsync(args, output, error, environment, cancellationToken),
-                "scan" => await RunScanAsync(args, output, error, environment, httpClientFactory, cancellationToken),
+                "init" => await RunInitAsync(args, output, error, cancellationToken),
+                "config" => await RunConfigAsync(args, output, error, cancellationToken),
+                "scan" => await RunScanAsync(args, output, error, cancellationToken),
                 _ => WriteInvalidArgument(error, args[0])
             };
         }
@@ -82,11 +82,10 @@ internal static class CommandLineApplication
         }
     }
 
-    private static async Task<int> RunInitAsync(
+    private async Task<int> RunInitAsync(
         string[] args,
         TextWriter output,
         TextWriter error,
-        ICommandEnvironment environment,
         CancellationToken cancellationToken)
     {
         if (!TryParseInit(args, out var outputPath, out var parseError))
@@ -139,11 +138,10 @@ internal static class CommandLineApplication
         return Success;
     }
 
-    private static async Task<int> RunConfigAsync(
+    private async Task<int> RunConfigAsync(
         string[] args,
         TextWriter output,
         TextWriter error,
-        ICommandEnvironment environment,
         CancellationToken cancellationToken)
     {
         if (args.Length < 2 || args[1] != "validate")
@@ -165,12 +163,10 @@ internal static class CommandLineApplication
         return Success;
     }
 
-    private static async Task<int> RunScanAsync(
+    private async Task<int> RunScanAsync(
         string[] args,
         TextWriter output,
         TextWriter error,
-        ICommandEnvironment environment,
-        Func<HttpClient>? httpClientFactory,
         CancellationToken cancellationToken)
     {
         if (!TryParseScanOptions(args, out var options, out var parseError))
@@ -200,12 +196,7 @@ internal static class CommandLineApplication
         }
 
         var apiKey = environment.GetEnvironmentVariable(configuration.Immich.ApiKeyEnv)!;
-        using ServiceProvider? serviceProvider = httpClientFactory is null
-            ? CreateServiceProvider()
-            : null;
-        using var httpClient = httpClientFactory?.Invoke()
-            ?? serviceProvider!.GetRequiredService<IHttpClientFactory>()
-                .CreateClient(ImmichHttpClientRegistration.ClientName);
+        using var httpClient = httpClientFactory.CreateClient(ImmichHttpClientRegistration.ClientName);
         ImmichApiClient client = new(httpClient, configuration.Immich.Url, apiKey);
 
         var version = await client.GetServerVersionAsync(cancellationToken);
@@ -273,13 +264,6 @@ internal static class CommandLineApplication
         }
 
         return result.IsPartial ? PartialScan : Success;
-    }
-
-    private static ServiceProvider CreateServiceProvider()
-    {
-        ServiceCollection services = new();
-        services.AddImmichHttpClient();
-        return services.BuildServiceProvider();
     }
 
     private static void WriteClassificationDetails(
