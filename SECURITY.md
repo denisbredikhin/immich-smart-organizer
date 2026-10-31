@@ -12,4 +12,4 @@ Include the affected version or commit, impact, and concise reproduction details
 
 ## Security boundaries
 
-The tool reads an Immich API key from the environment variable named in configuration. Keep the key out of YAML, command arguments, logs, and source control. The current implementation is read-only and does not transmit data to third-party AI services or collect telemetry. Search may return asset identifiers, so review verbose logs before sharing them.
+The tool reads an Immich API key from the environment variable named in configuration. Keep the key out of YAML, command arguments, logs, and source control. Dry-run is enabled by default; live mutations require explicit configuration. The tool does not transmit data to third-party AI services or collect telemetry. Search and the local SQLite journal contain asset identifiers; protect state files and review verbose logs before sharing them.

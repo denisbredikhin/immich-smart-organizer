@@ -52,11 +52,11 @@ review` routes it to review without category actions. Setting the policy to
 
 ## Dry-run action plans
 
-The phase-4 CLI reports unambiguous category matches and plans configured album,
-tag, and archive actions. It does not execute any library mutations, regardless
-of `processing.dryRun`; `--dry-run` also forces the reported dry-run setting on.
-The output reports planned actions separately from executed mutations, which
-remain zero. Archive plans respect `processing.maxArchiveActionsPerRun`.
+Dry-run reports unambiguous category matches and planned album, tag and archive
+actions without HTTP mutation requests or completed state writes. `--dry-run`
+overrides `processing.dryRun: false`. Archive plans respect
+`processing.maxArchiveActionsPerRun`. Live output separates intended actions
+from confirmed additions and archives; already-present membership is not a new addition.
 
 Archiving is disabled in the safe example configuration. If enabling it in a
 custom configuration, require multiple independent signals in the rule and
@@ -82,9 +82,37 @@ categories:
       archive: true
 ```
 
-This example produces a plan only in the current phase. Even when both
-independent search types match, the evidence is not a probability that the
-asset is a receipt. Mutation execution is outside phase 4.
+This example produces a plan while `dryRun` is true. Even when both independent
+search types match, the evidence is not a probability that the asset is a receipt.
+
+## Live execution and manual recovery
+
+After reviewing an isolated dry run, set `processing.dryRun: false` to apply
+actions on stable Immich 3.3.5. Live archival is rejected unless every enabled
+archival category requires both `contextualAny` and `ocrAny`/`ocrAll` in `match.all`.
+Putting them in `any` is not enough. A generic OCR term alone cannot archive.
+Keep the generated invoice example's archival disabled.
+
+Partial discovery blocks all mutations because bounded/missing results can hide
+conflicts or exclusions. `--category` never hides another category's match.
+Foreign-owned, hidden and locked assets are protected from live actions.
+Album lookup uses exact owned names and verifies the owner; duplicate owned
+names cause an explicit error instead of choosing arbitrarily. Album names are
+flat display names. Tag paths such as `Documents/Receipts` create separate
+segments using the parent tag's ID.
+
+Execution is serial, bounded by asset/archive/error limits, and journaled per
+action in SQLite. Failed archive attempts consume the per-run archive budget.
+Authentication or incompatible responses stop action execution immediately.
+An album may succeed before a tag or archive fails; rerun using the same state
+database to resume. The CLI reports partial execution rather than claiming all
+planned actions succeeded. No automated rollback is attempted.
+
+To undo a classification mistake in Immich, inspect affected assets in the
+configured album, remove their membership or tags manually, and use Immich's
+unarchive action if necessary. Originals remain intact. Disable the category or
+correct its rules before scanning again. Use `--full --dry-run` to review new
+rules and `--full` for deliberate server-state reconciliation.
 
 ## Explainability and privacy
 

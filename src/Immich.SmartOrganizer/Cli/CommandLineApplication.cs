@@ -6,6 +6,8 @@ using Immich.SmartOrganizer.Classification;
 using Immich.SmartOrganizer.Configuration;
 using Immich.SmartOrganizer.Immich;
 using Immich.SmartOrganizer.Search;
+using Immich.SmartOrganizer.State;
+using Microsoft.Data.Sqlite;
 
 namespace Immich.SmartOrganizer.Cli;
 
@@ -68,6 +70,11 @@ internal sealed class CommandLineApplication(
         catch (IOException exception)
         {
             error.WriteLine($"I/O error: {exception.Message}");
+            return GeneralFailure;
+        }
+        catch (SqliteException exception)
+        {
+            error.WriteLine($"State database error: {exception.Message}");
             return GeneralFailure;
         }
         catch (UnauthorizedAccessException exception)
@@ -186,26 +193,33 @@ internal sealed class CommandLineApplication(
 
         var configuration = loaded.Configuration;
         var selectedCategories = configuration.Categories;
-        if (options.Category is not null)
+        var processing = configuration.Processing;
+        var dryRun = options.DryRun || processing.DryRun != false;
+        if (!dryRun && selectedCategories.Any(category =>
+            category.Enabled && category.Actions.Archive && !ActionExecutor.IsArchiveSafe(category)))
         {
-            selectedCategories = [.. selectedCategories
-                .Where(category => string.Equals(
-                    category.Name,
-                    options.Category,
-                    StringComparison.OrdinalIgnoreCase))];
+            throw new ConfigurationException(
+                "Live archival requires both contextualAny and ocrAny/ocrAll as mandatory match.all conditions. Review a dry run first.");
         }
 
         var apiKey = environment.GetEnvironmentVariable(configuration.Immich.ApiKeyEnv)!;
         using var httpClient = httpClientFactory.CreateClient(ImmichHttpClientRegistration.ClientName);
-        ImmichApiClient client = new(httpClient, configuration.Immich.Url, apiKey);
+        ImmichApiClient client = new(httpClient, configuration.Immich.Url, apiKey,
+            configuration.Scanner.IncludeArchived, configuration.Scanner.IncludeExternalLibraries);
 
         var version = await client.GetServerVersionAsync(cancellationToken);
+        if (!dryRun && version.ToString() != "3.3.5")
+        {
+            throw new ImmichApiException(ImmichApiFailureKind.IncompatibleApi,
+                "Mutation execution is restricted to stable Immich 3.3.5, the reviewed API contract.");
+        }
+
+        using var state = dryRun ? null : new ScanStateStore(loaded.StateDatabasePath);
         var scanner = configuration.Scanner;
-        var processing = configuration.Processing;
         var maxAssets = Math.Min(
             processing.MaxAssetsPerRun,
             options.Limit ?? int.MaxValue);
-        CandidateDiscovery discovery = new(client);
+        CandidateDiscovery discovery = new(client, processing.MaxErrorsPerRun);
         var result = await discovery.DiscoverAsync(
             selectedCategories,
             scanner.BatchSize,
@@ -217,14 +231,30 @@ internal sealed class CommandLineApplication(
             result.Assets,
             selectedCategories,
             processing.AmbiguousAssetPolicy);
+        var actionableClassifications = options.Category is null ? classifications
+            : classifications.Where(classification =>
+                classification.Status == ClassificationStatus.Classified
+                && string.Equals(classification.MatchingCategories[0].Category.Name,
+                    options.Category, StringComparison.OrdinalIgnoreCase)).ToArray();
         var actionPlan = DryRunActionPlanner.Create(
-            classifications,
-            processing.MaxArchiveActionsPerRun);
-        var dryRun = options.DryRun || processing.DryRun != false;
+            actionableClassifications,
+            dryRun ? processing.MaxArchiveActionsPerRun : int.MaxValue);
+        ActionExecutor.ExecutionResult? execution = null;
+        if (!dryRun && !result.IsPartial)
+        {
+            var userId = await client.GetCurrentUserIdAsync(cancellationToken);
+            state!.BindScope(configuration.Immich.Url.TrimEnd('/') + "|" + userId);
+            ActionExecutor executor = new(client, state);
+            execution = await executor.ExecuteAsync(actionPlan, result.Assets, userId,
+                ActionExecutor.Fingerprint(configuration, options.Category),
+                processing.MaxArchiveActionsPerRun, processing.MaxErrorsPerRun,
+                options.Full || scanner.Mode == "full", cancellationToken);
+        }
+
         output.WriteLine($"Immich version: {version}");
-        output.WriteLine(options.Full
+        output.WriteLine(options.Full || scanner.Mode == "full"
             ? "Scan mode: full re-evaluation of discoverable candidates"
-            : $"Scan mode: candidate discovery (configured mode: {scanner.Mode}; incremental state is not applied in this phase)");
+            : "Scan mode: incremental re-evaluation using current evidence, asset update markers and rules fingerprint");
         output.WriteLine($"Dry run: {dryRun.ToString().ToLowerInvariant()}");
         output.WriteLine($"Candidates discovered: {result.Assets.Count}");
         output.WriteLine($"Assets evaluated: {classifications.Count}");
@@ -255,15 +285,32 @@ internal sealed class CommandLineApplication(
             output.WriteLine($"Partial coverage: {reason}");
         }
 
-        output.WriteLine("Execution: planning only; library actions are not executed in this phase.");
-        output.WriteLine("Mutations executed: 0");
-        output.WriteLine("No library changes were made.");
+        if (execution is null)
+        {
+            output.WriteLine(dryRun ? "Execution: dry-run only." : "Execution: blocked because discovery was partial.");
+            output.WriteLine("Mutations executed: 0");
+            output.WriteLine("No library changes were made.");
+        }
+        else
+        {
+            output.WriteLine($"Album additions confirmed: {execution.AlbumAdditions}");
+            output.WriteLine($"Tag applications confirmed: {execution.TagApplications}");
+            output.WriteLine($"Archivals confirmed: {execution.Archives}");
+            output.WriteLine($"Unchanged completed assets skipped: {execution.Skipped}");
+            output.WriteLine($"Archivals deferred by run limit: {execution.ArchiveLimited}");
+            output.WriteLine($"Mutations executed: {execution.Mutations} (asset membership/visibility updates; container creation excluded)");
+            foreach (var failure in execution.Errors)
+            {
+                error.WriteLine($"Action failure: {failure}");
+            }
+        }
         if (options.Verbose)
         {
             WriteClassificationDetails(output, classifications, actionPlan);
         }
 
-        return result.IsPartial ? PartialScan : Success;
+        return result.IsPartial || execution is { Errors.Count: > 0 } || execution is { ArchiveLimited: > 0 }
+            ? PartialScan : Success;
     }
 
     private static void WriteClassificationDetails(

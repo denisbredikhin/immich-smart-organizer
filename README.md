@@ -4,7 +4,7 @@
 
 Immich Smart Organizer is an unofficial, cross-platform .NET 10 command-line tool for finding and classifying assets in an Immich library using Immich's OCR and contextual search.
 
-The current implementation can initialize and validate configuration, discover candidates, evaluate category rules, and show planned album, tag, and archive actions. It is still read-only: **no Immich library mutations are implemented**. Persistent incremental processing is also not implemented yet.
+The tool initializes and validates configuration, discovers candidates, evaluates category rules, and plans or applies album, tag, and optional archive actions. **Dry-run is enabled by default.** Live runs persist action progress in local SQLite for incremental processing and interruption recovery.
 
 ## Architecture at a glance
 
@@ -12,16 +12,17 @@ The current implementation can initialize and validate configuration, discover c
 CLI and configuration
         -> Immich OCR / contextual search
         -> deterministic category rules and evidence
-        -> dry-run report with planned actions
+        -> dry-run report OR confirmed API actions + local SQLite state
 ```
 
-The CLI is composed with Microsoft.Extensions.DependencyInjection. Search and classification use Immich query evidence; the current phase does not persist scan state or perform library mutations.
+The CLI is composed with Microsoft.Extensions.DependencyInjection. Search and classification use Immich query evidence; live execution uses bounded HTTP requests and an exclusively locked SQLite action journal.
 
 ## Safety and scope
 
-- `scan` produces a dry-run plan and sends no album, tag, archive, or delete requests.
+- Dry-run sends no album, tag, or archive mutation requests and never writes completed scan state.
 - The generated configuration enables dry-run and disables archiving.
-- The [example YAML](examples/immich-smart-organizer.yaml) is the starting point. Setting a category's `actions.archive` to `true` only shows a planned action; it does not archive assets.
+- Use the [example YAML](examples/immich-smart-organizer.yaml) as a starting point. Live actions require `processing.dryRun: false`; archival additionally requires `actions.archive: true` and mandatory OCR plus contextual conditions in `match.all`.
+- Partial discovery blocks all live mutations. Ambiguous matches never receive category actions, even with `--category`.
 - Original photo and video files are never moved, rewritten, or deleted.
 - The tool uses Immich's documented API. It does not access the database or media filesystem, transmit data to an external AI service, or collect telemetry.
 - Search results are bounded candidates, not an exhaustive inventory of the library.
@@ -59,7 +60,7 @@ immich-smart-organizer scan --dry-run
 
 `init` creates `immich-smart-organizer.yaml` in the current directory and refuses to overwrite an existing file. The generated configuration refers to the `IMMICH_API_KEY` environment variable; the key itself is never written to YAML. See [configuration](docs/configuration.md) for config lookup, validation, defaults, and path rules.
 
-`scan` checks the Immich server version, performs configured OCR and contextual searches, and evaluates category rules against the queries that returned each candidate. It deduplicates results by asset ID and reports when configured limits or Immich's bounded search results make coverage partial. It can display planned album, tag, and archive actions, but never sends library mutation requests, even if `processing.dryRun` is disabled. See [classification and dry-run planning](docs/classification.md) for rule semantics and explainability.
+`scan` checks the Immich server version, performs configured OCR and contextual searches, and evaluates category rules against the queries that returned each candidate. It deduplicates results by asset ID and reports when configured limits or Immich's bounded search results make coverage partial. Inspect `scan --dry-run --verbose` before setting `processing.dryRun: false`. Keep archival disabled until you have reviewed conservative rules on an isolated library. See [classification and execution](docs/classification.md) for rule semantics, safety gates, and manual recovery.
 
 `--full` re-evaluates candidates that Immich's search APIs can discover; it does not guarantee that every library asset can be enumerated. Scan exit codes are documented in [configuration](docs/configuration.md). For deployment, scheduling, updates, and troubleshooting, see [deployment](docs/deployment.md), [troubleshooting](docs/troubleshooting.md), and [release instructions](docs/releasing.md).
 
@@ -73,11 +74,11 @@ immich-smart-organizer --help
 immich-smart-organizer --version
 ```
 
-The current `scanner.mode` and `state.path` settings are validated, but scans do not yet persist incremental state. A configured `incremental` mode does not imply that scan progress is saved or resumed.
+Incremental live scans rediscover candidates, compare current query evidence, rules fingerprints and asset update markers, and skip unchanged completed actions. `--full` forces re-evaluation; neither mode is exhaustive library enumeration. See [state and recovery](docs/configuration.md#state-and-incremental-recovery).
 
 ## Compatibility, privacy, and reporting
 
-The Immich API contract was reviewed against version 3.3.5. That contract has **not** been verified against a live Immich server. The tool requires an API key with the minimum permissions for the operations enabled; current read-only discovery requires `asset.read`. Do not share verbose logs without reviewing them: verbose scan output can contain asset IDs.
+The Immich API contract was reviewed against version 3.3.5. That contract has **not** been verified against a live Immich server. Live execution is restricted to that exact stable version; read-only search accepts stable 3.2.0+ within major version 3. Discovery requires `asset.read`; live runs additionally need `user.read` and the [permissions](docs/api-compatibility.md#authentication-and-permissions) for enabled actions. No administrator permission is assumed. Review verbose logs before sharing them: they can contain asset IDs.
 
 ## Development
 

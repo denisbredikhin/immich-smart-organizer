@@ -315,6 +315,10 @@ internal static class ConfigurationValidator
         {
             yield return $"{prefix}.actions.tag cannot be empty.";
         }
+        else if (actions.Tag is not null && actions.Tag.Split('/').Any(string.IsNullOrWhiteSpace))
+        {
+            yield return $"{prefix}.actions.tag must contain non-empty hierarchy segments.";
+        }
     }
 
     private static IEnumerable<string> ValidateLogging(AppConfiguration.LoggingOptions logging)

@@ -97,6 +97,23 @@ public sealed class ConfigurationValidatorTests
     }
 
     [TestMethod]
+    public async Task Validate_rejects_empty_tag_path_segment()
+    {
+        using TemporaryDirectory directory = new();
+        var yaml = TestConfiguration.ValidYaml.Replace(
+            "tag: Documents/Receipts",
+            "tag: Documents//Receipts",
+            StringComparison.Ordinal);
+        var configurationPath = await WriteConfigAsync(directory.Path, yaml);
+
+        var exception = await Assert.ThrowsExactlyAsync<ConfigurationException>(
+            () => ConfigurationLoader.LoadAsync(configurationPath, CreateEnvironment(directory.Path), TestContext.CancellationToken));
+
+        Assert.Contains("must contain non-empty hierarchy segments", exception.Message);
+        Assert.Contains("categories[0].actions.tag", exception.Message);
+    }
+
+    [TestMethod]
     public async Task Load_rejects_missing_required_immich_section()
     {
         using TemporaryDirectory directory = new();

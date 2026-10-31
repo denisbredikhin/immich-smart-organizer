@@ -14,7 +14,7 @@
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Denis Bredikhin</Authors>
-    <Description>A read-only CLI for discovering and classifying Immich assets with dry-run action plans.</Description>
+    <Description>A configurable CLI for classifying Immich assets and safely applying album, tag and optional archive actions, with dry-run defaults.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>immich;photos;organization;cli</PackageTags>
     <PackageProjectUrl>https://github.com/denisbredikhin/immich-smart-organizer</PackageProjectUrl>
@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>

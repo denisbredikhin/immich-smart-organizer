@@ -154,6 +154,37 @@ public sealed class CandidateDiscoveryTests
     }
 
     [TestMethod]
+    public async Task DiscoverAsync_stops_issuing_searches_when_maximum_error_threshold_is_reached()
+    {
+        StubHttpMessageHandler handler = new((_, _) => Task.FromResult(
+            Response("temporarily unavailable", HttpStatusCode.ServiceUnavailable)));
+        using ServiceProvider serviceProvider = CreateResilienceServiceProvider(handler);
+        using HttpClient httpClient = serviceProvider.GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ImmichHttpClientRegistration.ClientName);
+        CandidateDiscovery discovery = new(CreateClient(httpClient), maxErrors: 1);
+        AppConfiguration.CategoryOptions category = new()
+        {
+            Name = "documents",
+            Search = new AppConfiguration.SearchOptions { Ocr = ["broken", "must-not-run"] },
+            Match = new()
+        };
+
+        var result = await discovery.DiscoverAsync(
+            [category], batchSize: 5, maxAssets: 20, cancellationToken: TestContext.CancellationToken);
+
+        Assert.IsTrue(result.IsPartial);
+        Assert.IsEmpty(result.Assets);
+        Assert.HasCount(3, handler.Requests);
+        Assert.IsTrue(handler.Requests.All(request =>
+        {
+            using JsonDocument body = JsonDocument.Parse(request.Body!);
+            return body.RootElement.GetProperty("filter").GetProperty("ocr")
+                .GetProperty("matches").GetString() == "broken";
+        }));
+        Assert.Contains(static reason => reason.Contains("maxErrorsPerRun", StringComparison.Ordinal), result.PartialReasons);
+    }
+
+    [TestMethod]
     public async Task DiscoverAsync_skips_disabled_categories_without_requests()
     {
         StubHttpMessageHandler handler = new((_, _) =>

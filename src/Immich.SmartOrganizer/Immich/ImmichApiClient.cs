@@ -8,7 +8,7 @@ using Polly.Timeout;
 
 namespace Immich.SmartOrganizer.Immich;
 
-internal sealed class ImmichApiClient
+internal sealed partial class ImmichApiClient
 {
     private const int MinimumPageSize = 1;
     private const int MaximumPageSize = 500;
@@ -17,8 +17,12 @@ internal sealed class ImmichApiClient
     private readonly HttpClient _httpClient;
     private readonly Uri _apiBaseAddress;
     private readonly string _apiKey;
+    private readonly bool _includeArchived;
+    private readonly bool _includeExternalLibraries;
 
-    public ImmichApiClient(HttpClient httpClient, string serverUrl, string apiKey)
+    public ImmichApiClient(
+        HttpClient httpClient, string serverUrl, string apiKey,
+        bool includeArchived = true, bool includeExternalLibraries = true)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentException.ThrowIfNullOrWhiteSpace(serverUrl);
@@ -35,6 +39,8 @@ internal sealed class ImmichApiClient
 
         _httpClient = httpClient;
         _apiKey = apiKey;
+        _includeArchived = includeArchived;
+        _includeExternalLibraries = includeExternalLibraries;
         _apiBaseAddress = CreateApiBaseAddress(serverUri);
     }
 
@@ -89,6 +95,7 @@ internal sealed class ImmichApiClient
         {
             filter["type"] = new { eq = "IMAGE" };
         }
+        AddScopeFilters(filter);
 
         Dictionary<string, object> requestBody = new(StringComparer.Ordinal)
         {
@@ -123,6 +130,7 @@ internal sealed class ImmichApiClient
         {
             filter["type"] = new { eq = "IMAGE" };
         }
+        AddScopeFilters(filter);
 
         var requestBody = new
         {
@@ -140,6 +148,19 @@ internal sealed class ImmichApiClient
         return MapSearchResponse(response, HttpMethod.Post, "search/smart");
     }
 
+    private void AddScopeFilters(Dictionary<string, object> filter)
+    {
+        if (!_includeArchived)
+        {
+            filter["visibility"] = new { eq = "timeline" };
+        }
+
+        if (!_includeExternalLibraries)
+        {
+            filter["libraryId"] = new Dictionary<string, object?> { ["eq"] = null };
+        }
+    }
+
     private async Task<TResponse> SendAsync<TResponse>(
         HttpMethod method,
         string endpoint,
@@ -149,6 +170,7 @@ internal sealed class ImmichApiClient
     {
         var requestUri = new Uri(_apiBaseAddress, endpoint);
         using HttpRequestMessage request = new(method, requestUri);
+        request.Options.Set(MutationRequest, !IsReadOnlyRequest(method, endpoint));
         if (authenticated)
         {
             request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
@@ -197,6 +219,16 @@ internal sealed class ImmichApiClient
             if (!response.IsSuccessStatusCode)
             {
                 throw CreateStatusException(endpoint, response.StatusCode);
+            }
+
+            if (typeof(TResponse) == typeof(NoContentResponse))
+            {
+                if (response.StatusCode != HttpStatusCode.NoContent)
+                {
+                    throw InvalidResponse(method, endpoint);
+                }
+
+                return (TResponse)(object)new NoContentResponse();
             }
 
             try

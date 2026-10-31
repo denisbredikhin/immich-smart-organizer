@@ -45,16 +45,16 @@ Unknown properties are errors rather than silently ignored values. YamlDotNet re
 | `scanner` | section | defaults | Optional; omitted values use the defaults below. |
 | `scanner.mode` | `incremental` or `full` | `incremental` | `full` means candidate re-evaluation, not guaranteed exhaustive library enumeration. |
 | `scanner.batchSize` | integer | `100` | `1`–`500`. |
-| `scanner.concurrency` | integer | `2` | `1`–`8`. |
-| `scanner.includeArchived` | boolean | `true` | Requests archived assets to be considered when supported by the scan implementation. |
-| `scanner.includeExternalLibraries` | boolean | `true` | External-library coverage is not yet verified; see API compatibility notes. |
+| `scanner.concurrency` | integer | `2` | `1`–`8`; current execution is serial (one active request), within this upper bound. |
+| `scanner.includeArchived` | boolean | `true` | `false` restricts searches to timeline visibility. |
+| `scanner.includeExternalLibraries` | boolean | `true` | `false` adds a null `libraryId` filter; completeness of external-library discovery is not live-verified. |
 | `scanner.includeVideos` | boolean | `false` | Whether videos may be included in discovery. |
-| `scanner.lookbackDays` | integer | `7` | `1`–`3650`; it is not a safe standalone incremental cursor. |
+| `scanner.lookbackDays` | integer | `7` | `1`–`3650`; reserved, not used as a capture-date cutoff because historical imports would be missed. |
 | `processing` | section | defaults | Optional; omitted values use the defaults below. |
 | `processing.dryRun` | boolean | `true` | Plans are not completed actions. Dry-run must send no mutation requests. |
 | `processing.maxAssetsPerRun` | integer | `1000` | `1`–`100000`. |
-| `processing.maxArchiveActionsPerRun` | integer | `25` | `0`–`1000`; `0` disables archive actions. |
-| `processing.maxErrorsPerRun` | integer | `20` | `1`–`1000`. |
+| `processing.maxArchiveActionsPerRun` | integer | `25` | `0`–`1000`; bounds archive requests, including failed attempts; deferred actions stay pending. |
+| `processing.maxErrorsPerRun` | integer | `20` | `1`–`1000`; stops search/action requests at the threshold. Authentication/incompatible-action failures stop execution immediately. |
 | `processing.ambiguousAssetPolicy` | `review` or `skip` | `review` | Ambiguous results must not be assigned arbitrarily. |
 | `state` | section | required | State database settings. |
 | `state.path` | file path | `./state.db` | Relative paths are based on the configuration file's directory. |
@@ -70,8 +70,8 @@ Unknown properties are errors rather than silently ignored values. YamlDotNet re
 | `categories[].match.not` | condition | unset | The category condition is satisfied when this condition does not match. |
 | `categories[].match.exclude` | list of conditions | empty | Any matching exclusion blocks the category; exclusions do not qualify a category by themselves. |
 | `categories[].actions.album` | string | unset | Optional album display name. |
-| `categories[].actions.tag` | string | unset | Optional tag name. A slash is not interpreted as a filesystem path. |
-| `categories[].actions.archive` | boolean | `false` | Archive action is opt-in and subject to the per-run limit; this phase plans but does not execute it. |
+| `categories[].actions.tag` | string | unset | Optional hierarchy path with non-empty segments; children are created with Immich's `parentId`, never as filesystem paths. |
+| `categories[].actions.archive` | boolean | `false` | Live archival requires mandatory contextual and OCR conditions in `match.all` and is bounded by the run limit. |
 | `logging` | section | defaults | Optional; omitted values use the defaults below. |
 | `logging.level` | `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`, or `None` | `Information` | Reserved for CLI logging behavior. |
 | `logging.format` | `text` | `text` | JSON logging is not currently supported. |
@@ -99,13 +99,27 @@ immich-smart-organizer config validate [--config PATH]
 immich-smart-organizer scan [--config PATH] [--dry-run] [--full] [--limit N] [--category NAME] [--verbose]
 ```
 
-The current `scan` implementation checks the server version, performs configured read-only OCR and contextual candidate searches, evaluates category rules, and reports a dry-run plan for configured actions. It sends no library mutation requests in this phase, even if `processing.dryRun` is false. `--full` means full re-evaluation of candidates Immich search can discover, not exhaustive library enumeration. Incremental state is not applied in this phase.
+`scan` checks the server version, performs configured OCR and contextual searches, and evaluates category rules. With `processing.dryRun: false` it can apply live actions; `--dry-run` always overrides this. Dry-run does not create a SQLite journal or record completed actions. `--category` restricts actions, not discovery/classification: all enabled categories are evaluated to preserve conflict safety. Partial discovery blocks every live mutation.
+
+`--full` (or `scanner.mode: full`) forces re-evaluation of discoverable candidates, not exhaustive library enumeration.
 
 | Code | Meaning |
 |---:|---|
 | `0` | Command completed successfully. |
-| `1` | General or I/O failure, including cancellation. |
+| `1` | General, state database, lock or I/O failure, including cancellation. |
 | `2` | Invalid arguments or configuration. |
 | `3` | Immich connectivity or authentication/permission failure. |
 | `4` | Unsupported Immich version, endpoint, or response contract. |
-| `5` | Partial discovery; some searches or result windows were incomplete. |
+| `5` | Partial discovery, action failure, or archive actions deferred by the run limit. Previously confirmed actions may already have succeeded. |
+
+## State and incremental recovery
+
+Live runs acquire an exclusive `<state.path>.lock` before discovery and retain it until the run ends. The empty lock file remains after release; do not delete it while any process is running. Use one canonical database path on a local filesystem for all schedules targeting the same library. Network filesystems, alternate aliases or multiple independent state databases are not distributed locks.
+
+SQLite schema version 1 stores asset IDs, current update markers, processing timestamps, classification names, a hash of relevant configuration plus query evidence, pending/completed action records and the last action failure. It stores no credentials, media bytes or raw OCR text. Schema initialization is transactional; unsupported schema versions fail explicitly. A database is bound to an Immich URL and authenticated user to prevent cross-library reuse.
+
+Incremental runs always rediscover query candidates and read current asset metadata. Unchanged completed candidates are skipped. Rule/action/query or asset marker changes trigger re-evaluation; `--full` bypasses the skip. Confirmed steps of an interrupted run are reused when fingerprints and markers match. Membership APIs treat server-reported `duplicate` as already satisfied; archive visibility is checked on the server before any archive request and again after a successful update.
+
+The journal is not authoritative server state. To reconcile manually edited album/tag membership that does not change an asset's update marker, use `--full`. Removing an action from YAML never removes old album/tag membership or unarchives assets. Limited archive actions remain pending and subsequent runs advance them, provided those assets remain discoverable. No capture-time cursor or lookback cutoff is used, avoiding omission of historical imports.
+
+Protect the database and logs: they can contain asset IDs and configured category/action names. Do not delete state to repair an interrupted run; retry with the same database first. See [manual recovery](classification.md#live-execution-and-manual-recovery).

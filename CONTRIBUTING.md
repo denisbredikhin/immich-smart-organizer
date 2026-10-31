@@ -30,7 +30,7 @@ This validation checks that the environment variable is set; it does not contact
 
 - Keep changes focused and explain the user-visible behavior and safety impact.
 - Add or update tests for behavior changes.
-- Preserve the read-only guarantee: scans must not issue Immich mutation requests.
+- Preserve the dry-run guarantee: dry runs must not issue Immich mutation requests or record completed actions. Test live action confirmation, partial recovery and bounded limits using mocked HTTP only.
 - Update relevant documentation and examples.
 - Run the checks above and report any that could not be run.
 - Do not publish packages or create release tags as part of an ordinary pull request.
