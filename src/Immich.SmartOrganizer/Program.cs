@@ -1,5 +1,6 @@
 using System.Reflection;
 using Immich.SmartOrganizer.Cli;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Immich.SmartOrganizer;
 
@@ -17,11 +18,14 @@ internal static class Program
 
         try
         {
-            return await CommandLineApplication.RunAsync(
+            ServiceCollection services = new();
+            services.AddApplicationServices();
+            using var serviceProvider = services.BuildServiceProvider();
+            var application = serviceProvider.GetRequiredService<CommandLineApplication>();
+            return await application.RunAsync(
                 args,
                 Console.Out,
                 Console.Error,
-                new SystemCommandEnvironment(),
                 cancellationToken: cancellationSource.Token);
         }
         finally
