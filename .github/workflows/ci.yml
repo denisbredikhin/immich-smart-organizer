@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-pack:
+    runs-on: ubuntu-latest
+    env:
+      IMMICH_API_KEY: CI_SMOKE_TEST_KEY
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Immich.SmartOrganizer.slnx
+
+      - name: Build
+        run: dotnet build Immich.SmartOrganizer.slnx --configuration Release --no-restore
+
+      - name: Test with Microsoft.Testing.Platform
+        run: dotnet test --solution Immich.SmartOrganizer.slnx --configuration Release --no-build
+
+      - name: Verify formatting
+        run: dotnet format Immich.SmartOrganizer.slnx --verify-no-changes --no-restore
+
+      - name: Validate example configuration
+        run: dotnet run --no-build --configuration Release --project src/Immich.SmartOrganizer -- config validate --config examples/immich-smart-organizer.yaml
+
+      - name: Pack tool
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          dotnet pack src/Immich.SmartOrganizer/Immich.SmartOrganizer.csproj \
+            --configuration Release \
+            --no-restore \
+            --output "$RUNNER_TEMP/packages" \
+            --property:Version="$version"
+
+      - name: Install packed tool into an isolated path
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          dotnet tool install Immich.SmartOrganizer \
+            --tool-path "$RUNNER_TEMP/tools" \
+            --add-source "$RUNNER_TEMP/packages" \
+            --version "$version"
+
+      - name: Smoke-test installed tool
+        run: |
+          tool="$RUNNER_TEMP/tools/immich-smart-organizer"
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          "$tool" --help
+          test "$("$tool" --version)" = "$version"
+          "$tool" config validate --config examples/immich-smart-organizer.yaml
