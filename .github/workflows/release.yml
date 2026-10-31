@@ -80,7 +80,7 @@ jobs:
           "$tool" config validate --config examples/immich-smart-organizer.yaml
 
       - name: Upload NuGet package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nuget-package
           path: ${{ runner.temp }}/packages/*.nupkg
