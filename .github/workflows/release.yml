@@ -53,9 +53,6 @@ jobs:
       - name: Test with Microsoft.Testing.Platform
         run: dotnet test --solution Immich.SmartOrganizer.slnx --configuration Release --no-build
 
-      - name: Verify formatting
-        run: dotnet format Immich.SmartOrganizer.slnx --verify-no-changes --no-restore
-
       - name: Validate example configuration
         run: dotnet run --no-build --configuration Release --project src/Immich.SmartOrganizer -- config validate --config examples/immich-smart-organizer.yaml
 
@@ -89,9 +86,29 @@ jobs:
           path: ${{ runner.temp }}/packages/*.nupkg
           if-no-files-found: error
 
+  format:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Immich.SmartOrganizer.slnx
+
+      - name: Verify formatting
+        run: dotnet format Immich.SmartOrganizer.slnx --verify-no-changes --no-restore
+
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish == true
-    needs: verify
+    needs:
+      - verify
+      - format
     runs-on: ubuntu-latest
     environment:
       name: nuget
