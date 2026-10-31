@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to NuGet.org and create a GitHub Release (requires an approved nuget environment)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      IMMICH_API_KEY: CI_SMOKE_TEST_KEY
+
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Expected a SemVer tag such as v0.1.0 or v0.1.0-alpha.1; got: $tag" >&2
+            exit 1
+          fi
+          echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Immich.SmartOrganizer.slnx
+
+      - name: Build
+        run: dotnet build Immich.SmartOrganizer.slnx --configuration Release --no-restore
+
+      - name: Test with Microsoft.Testing.Platform
+        run: dotnet test --solution Immich.SmartOrganizer.slnx --configuration Release --no-build
+
+      - name: Validate example configuration
+        run: dotnet run --no-build --configuration Release --project src/Immich.SmartOrganizer -- config validate --config examples/immich-smart-organizer.yaml
+
+      - name: Pack tool
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          dotnet pack src/Immich.SmartOrganizer/Immich.SmartOrganizer.csproj \
+            --configuration Release \
+            --no-restore \
+            --output "$RUNNER_TEMP/packages" \
+            --property:Version="$PACKAGE_VERSION"
+
+      - name: Install and smoke-test packed tool
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          dotnet tool install Immich.SmartOrganizer \
+            --tool-path "$RUNNER_TEMP/tools" \
+            --add-source "$RUNNER_TEMP/packages" \
+            --version "$PACKAGE_VERSION"
+          tool="$RUNNER_TEMP/tools/immich-smart-organizer"
+          "$tool" --help
+          test "$("$tool" --version)" = "$PACKAGE_VERSION"
+          "$tool" config validate --config examples/immich-smart-organizer.yaml
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: ${{ runner.temp }}/packages/*.nupkg
+          if-no-files-found: error
+
+  format:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Immich.SmartOrganizer.slnx
+
+      - name: Verify formatting
+        run: dotnet format Immich.SmartOrganizer.slnx --verify-no-changes --no-restore
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+    needs:
+      - verify
+      - format
+    runs-on: ubuntu-latest
+    environment:
+      name: nuget
+      url: https://www.nuget.org/packages/Immich.SmartOrganizer
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+
+      - name: Download verified package
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: packages
+
+      - name: Publish package to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push packages/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" packages/*.nupkg --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
