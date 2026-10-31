@@ -14,7 +14,8 @@
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Denis Bredikhin</Authors>
-    <Description>A safe, configurable CLI for organizing assets in an Immich library.</Description>
+    <Description>A read-only CLI for discovering and classifying Immich assets with dry-run action plans.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>immich;photos;organization;cli</PackageTags>
     <PackageProjectUrl>https://github.com/denisbredikhin/immich-smart-organizer</PackageProjectUrl>
     <RepositoryUrl>https://github.com/denisbredikhin/immich-smart-organizer</RepositoryUrl>
