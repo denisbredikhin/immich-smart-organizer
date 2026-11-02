@@ -9,7 +9,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PACKAGE_VERSION: 0.1.0-ci.${{ github.run_number }}.${{ github.run_attempt }}
 
 jobs:
   build-test-pack:
@@ -40,28 +43,33 @@ jobs:
 
       - name: Pack tool
         run: |
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
           dotnet pack src/Immich.SmartOrganizer/Immich.SmartOrganizer.csproj \
             --configuration Release \
             --no-restore \
             --output "$RUNNER_TEMP/packages" \
-            --property:Version="$version"
+            --property:Version="$PACKAGE_VERSION"
 
       - name: Install packed tool into an isolated path
         run: |
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
           dotnet tool install Immich.SmartOrganizer \
             --tool-path "$RUNNER_TEMP/tools" \
             --add-source "$RUNNER_TEMP/packages" \
-            --version "$version"
+            --version "$PACKAGE_VERSION"
 
       - name: Smoke-test installed tool
         run: |
           tool="$RUNNER_TEMP/tools/immich-smart-organizer"
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
           "$tool" --help
-          test "$("$tool" --version)" = "$version"
+          test "$("$tool" --version)" = "$PACKAGE_VERSION"
           "$tool" config validate --config examples/immich-smart-organizer.yaml
+
+      - name: Upload verified main package
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: main-nuget-package
+          path: ${{ runner.temp }}/packages/*.nupkg
+          if-no-files-found: error
 
   format:
     runs-on: windows-latest
@@ -80,3 +88,48 @@ jobs:
 
       - name: Verify formatting
         run: dotnet format Immich.SmartOrganizer.slnx --verify-no-changes --no-restore
+
+  publish-main:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - build-test-pack
+      - format
+    runs-on: ubuntu-latest
+    environment:
+      name: nuget-main
+      url: https://www.nuget.org/packages/Immich.SmartOrganizer
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check publishing configuration
+        env:
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          if [[ -z "$NUGET_USER" ]]; then
+            echo "Set the nuget-main environment variable NUGET_USER to your NuGet.org profile name and configure its trusted publishing policy. See docs/releasing.md." >&2
+            exit 1
+          fi
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download verified main package
+        uses: actions/download-artifact@v8
+        with:
+          name: main-nuget-package
+          path: packages
+
+      - name: Authenticate to NuGet.org with OIDC
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Publish prerelease to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push packages/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

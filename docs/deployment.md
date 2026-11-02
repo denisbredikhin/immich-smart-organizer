@@ -20,6 +20,8 @@ dotnet tool run immich-smart-organizer -- --help
 
 For development before package publication, use the commands in [README development](../README.md#development).
 
+For automatic `main` prereleases, add `--prerelease` to the install command, or pin a published version with `--version`. These packages become available after [trusted publishing setup](releasing.md#automatic-main-prereleases); stable releases use the separate approval process.
+
 ## Configuration and environment
 
 Create a configuration file in the directory from which the scheduled command will run:
