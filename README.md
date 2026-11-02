@@ -48,6 +48,8 @@ dotnet tool install Immich.SmartOrganizer
 
 Until the first package release, build and run the tool from source using the [development instructions](#development).
 
+Once [trusted publishing is configured](docs/releasing.md#automatic-main-prereleases), successful `main` builds automatically publish prereleases. Install those with `dotnet tool install --global Immich.SmartOrganizer --prerelease`; stable releases retain the separate manual release process.
+
 ## Quick start
 
 ```powershell
